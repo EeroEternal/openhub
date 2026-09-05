@@ -1,0 +1,126 @@
+name: CI Local-Gate Mirror
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Detect code changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+      admin: ${{ steps.filter.outputs.admin }}
+    steps:
+      - id: filter
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            files="$(gh api --paginate "repos/$REPO/pulls/${{ github.event.pull_request.number }}/files" --jq '.[].filename')"
+          else
+            before="${{ github.event.before }}"
+            if [ -z "$before" ] || printf '%s' "$before" | grep -qE '^0+$'; then
+              echo "code=true" >> "$GITHUB_OUTPUT"
+              echo "admin=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            files="$(gh api "repos/$REPO/compare/$before...${{ github.sha }}" --jq '.files[].filename')"
+          fi
+
+          # Code files filter (exclude pure documentation and AI metacode)
+          code_files="$(printf '%s\n' "$files" | grep -vE '^(docs/|\.agents/)|\.md$' || true)"
+          if [ -n "$code_files" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # Admin UI & scripts filter
+          admin_files="$(printf '%s\n' "$files" | grep -E '^(admin/|scripts/)|^Cargo\.toml$' || true)"
+          if [ -n "$admin_files" ]; then
+            echo "admin=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "admin=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  backend-gate:
+    name: Rust Backend Gate (fmt, clippy, tests)
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-rust
+
+      - name: Check Formatting
+        run: cargo fmt --check
+
+      - name: Run Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Run Tests
+        run: cargo test --workspace
+
+  admin-gate:
+    name: Admin UI Gate (tsc, lint, build, kit checks)
+    needs: [changes]
+    if: needs.changes.outputs.admin == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: admin
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: TypeScript Check
+        run: npx tsc -b --noEmit
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: Production Build
+        run: npm run build
+
+      - name: UI stack and nav checks
+        working-directory: ${{ github.workspace }}
+        run: |
+          bash scripts/check_ui_stack.sh
+          bash scripts/check_admin_nav.sh
