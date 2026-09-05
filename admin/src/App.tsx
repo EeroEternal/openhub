@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Outlet, Route, Routes } from "react-router-dom"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { PublicHeader } from "@/components/layout/header"
 import { Toaster } from "@/components/ui/sonner"
 import { getToken } from "@/lib/api"
 import LoginPage from "@/pages/login"
@@ -14,9 +15,16 @@ function RequireAuth() {
   return <DashboardLayout />
 }
 
-function PublicOnly() {
+function PublicLayout() {
   if (getToken()) return <Navigate to="/" replace />
-  return <Outlet />
+  return (
+    <div className="flex min-h-svh flex-col bg-muted/40">
+      <PublicHeader />
+      <div className="flex flex-1 items-center justify-center p-4">
+        <Outlet />
+      </div>
+    </div>
+  )
 }
 
 export default function App() {
@@ -24,7 +32,7 @@ export default function App() {
     <BrowserRouter>
       <Toaster position="top-center" richColors />
       <Routes>
-        <Route element={<PublicOnly />}>
+        <Route element={<PublicLayout />}>
           <Route path="login" element={<LoginPage />} />
           <Route path="register" element={<RegisterPage />} />
           <Route path="verify" element={<VerifyPage />} />

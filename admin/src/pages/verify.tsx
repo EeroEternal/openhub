@@ -45,7 +45,6 @@ export default function VerifyPage() {
   }
 
   return (
-    <div className="flex min-h-svh items-center justify-center bg-muted/40 p-4">
       <Card className="w-full max-w-sm p-6">
         <h1 className="mb-6 text-page-title text-foreground">{t("auth.verifyTitle")}</h1>
         <form className="space-y-4" onSubmit={onSubmit}>
@@ -78,6 +77,5 @@ export default function VerifyPage() {
           </Button>
         </form>
       </Card>
-    </div>
   )
 }

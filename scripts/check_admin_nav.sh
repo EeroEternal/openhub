@@ -31,17 +31,12 @@ while IFS= read -r href; do
   fi
 done <<< "$hrefs"
 
-if grep -qE '<Route[[:space:]]+index' "$APP"; then
-  if ! grep -qx '/' <<<"$hrefs"; then
-    echo "✗ <Route index> has no nav href /"
-    fail=1
-  fi
-fi
+# Index may redirect into a sidebar-loaded project list (no static href /).
 
 while IFS= read -r path; do
   [[ -z "$path" || "$path" == "*" ]] && continue
   [[ "$path" == *:* ]] && continue
-  case "$path" in login|register|verify) continue ;; esac
+  case "$path" in login|register|verify|settings) continue ;; esac
   if ! grep -qx "/$path" <<<"$hrefs"; then
     echo "✗ <Route path=\"$path\"> has no nav href /$path"
     fail=1

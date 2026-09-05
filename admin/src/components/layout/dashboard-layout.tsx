@@ -4,21 +4,24 @@ import { AppSidebar } from "./app-sidebar"
 import { SiteHeader } from "./header"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { PageLoading } from "@/components/ui/page-loading"
+import { ProjectsProvider } from "@/lib/projects"
 
 export function DashboardLayout() {
   return (
-    <SidebarProvider>
-      <AppSidebar />
-      <SidebarInset className="h-svh overflow-hidden">
-        <SiteHeader />
-        <main className="flex min-h-0 flex-1 flex-col overflow-auto bg-muted/40 scrollbar-hide">
-          <div className="flex min-h-0 flex-1 flex-col">
-            <Suspense fallback={<PageLoading />}>
-              <Outlet />
-            </Suspense>
-          </div>
-        </main>
-      </SidebarInset>
-    </SidebarProvider>
+    <ProjectsProvider>
+      <SidebarProvider>
+        <AppSidebar />
+        <SidebarInset className="h-svh overflow-hidden">
+          <SiteHeader />
+          <main className="flex min-h-0 flex-1 flex-col overflow-auto bg-muted/40 scrollbar-hide">
+            <div className="flex min-h-0 flex-1 flex-col">
+              <Suspense fallback={<PageLoading />}>
+                <Outlet />
+              </Suspense>
+            </div>
+          </main>
+        </SidebarInset>
+      </SidebarProvider>
+    </ProjectsProvider>
   )
 }

@@ -195,6 +195,20 @@ pub async fn delete_session(pool: &SqlitePool, token_hash: &str) -> Result<()> {
     Ok(())
 }
 
+pub async fn delete_other_sessions(
+    pool: &SqlitePool,
+    user_id: &str,
+    keep_token_hash: &str,
+) -> Result<()> {
+    sqlx::query("DELETE FROM auth_tokens WHERE purpose = ? AND user_id = ? AND token_hash != ?")
+        .bind("session")
+        .bind(user_id)
+        .bind(keep_token_hash)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 pub async fn insert_project(
     pool: &SqlitePool,
     owner_id: &str,

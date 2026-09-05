@@ -45,6 +45,7 @@ pub fn create_router(hub: HubState) -> Router {
         .route("/api/v1/auth/login", post(auth::login))
         .route("/api/v1/auth/logout", post(auth::logout))
         .route("/api/v1/me", get(auth::me))
+        .route("/api/v1/me/password", post(auth::change_password))
         .route(
             "/api/v1/projects",
             get(projects::list).post(projects::create),

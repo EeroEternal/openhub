@@ -35,16 +35,18 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-svh items-center justify-center bg-muted/40 p-4">
       <Card className="w-full max-w-sm p-6">
         <h1 className="mb-6 text-page-title text-foreground">{t("auth.login")}</h1>
-        <form className="space-y-4" onSubmit={onSubmit}>
+        <form className="space-y-4" autoComplete="off" onSubmit={onSubmit}>
           <div className="space-y-2">
             <Label htmlFor="email">{t("auth.email")}</Label>
             <Input
               id="email"
-              type="email"
-              autoComplete="username"
+              type="text"
+              inputMode="email"
+              autoComplete="off"
+              data-1p-ignore
+              data-lpignore="true"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
@@ -55,7 +57,9 @@ export default function LoginPage() {
             <Input
               id="password"
               type="password"
-              autoComplete="current-password"
+              autoComplete="off"
+              data-1p-ignore
+              data-lpignore="true"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
@@ -72,6 +76,5 @@ export default function LoginPage() {
           </Link>
         </p>
       </Card>
-    </div>
   )
 }

@@ -28,6 +28,12 @@ pub struct LoginRequest {
     pub password: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ChangePasswordRequest {
+    pub current_password: String,
+    pub new_password: String,
+}
+
 pub async fn register(
     State(hub): State<HubState>,
     Json(body): Json<RegisterRequest>,
@@ -111,6 +117,31 @@ pub async fn logout(State(hub): State<HubState>, headers: HeaderMap) -> Result<J
 pub async fn me(State(hub): State<HubState>, headers: HeaderMap) -> Result<Json<Value>> {
     let user = user_from_headers(&hub, &headers).await?;
     Ok(Json(json!({ "id": user.id, "email": user.email })))
+}
+
+pub async fn change_password(
+    State(hub): State<HubState>,
+    headers: HeaderMap,
+    Json(body): Json<ChangePasswordRequest>,
+) -> Result<Json<Value>> {
+    if body.new_password.len() < 8 {
+        return Err(Error::InvalidRequest(
+            "password must be at least 8 characters".into(),
+        ));
+    }
+    let user = user_from_headers(&hub, &headers).await?;
+    let Some(ref stored) = user.password_hash else {
+        return Err(Error::Unauthorized("invalid email or password".into()));
+    };
+    if !verify_password(&body.current_password, stored) {
+        return Err(Error::Unauthorized("invalid email or password".into()));
+    }
+    let hash = hash_password(&body.new_password)?;
+    store::set_password_and_verify(&hub.db, &user.id, &hash).await?;
+    if let Some(raw) = bearer_from_headers(&headers) {
+        store::delete_other_sessions(&hub.db, &user.id, &hash_token(&raw)).await?;
+    }
+    Ok(Json(json!({ "ok": true })))
 }
 
 pub async fn user_from_headers(hub: &HubState, headers: &HeaderMap) -> Result<store::User> {

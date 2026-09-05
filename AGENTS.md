@@ -23,6 +23,7 @@ This document serves as the **high-density, lightweight entry point (attention s
 | `git stash` operations | skill [`git-stash-safe`](.agents/skills/git-stash-safe/SKILL.md) |
 | Adding SQL migrations (`migrations/NNN_*.sql`) | skill [`add-sql-migration`](.agents/skills/add-sql-migration/SKILL.md) + this file (SQL portability) |
 | Accounts / projects / sync protocol | [`docs/product.md`](docs/product.md) |
+| User attributes / Settings IA / registration / identity source | skill [`user-attributes-settings`](.agents/skills/user-attributes-settings/SKILL.md) |
 | Writing design docs in `docs/` / DDL / Mermaid | skill [`verify-design-doc`](.agents/skills/verify-design-doc/SKILL.md) |
 | Release / tagging / production deployment | skill [`release`](.agents/skills/release/SKILL.md) |
 | Code review / PR audit / acceptance verification | skill [`review`](.agents/skills/review/SKILL.md) (Independent read-only context) |
@@ -53,6 +54,7 @@ Authoritative skills are located under `.agents/skills/`.
 - [`add-sql-migration`](.agents/skills/add-sql-migration/SKILL.md)
 - [`promote-lesson`](.agents/skills/promote-lesson/SKILL.md)
 - [`admin-ui-change`](.agents/skills/admin-ui-change/SKILL.md)
+- [`user-attributes-settings`](.agents/skills/user-attributes-settings/SKILL.md)
 - [`admin-domain-resource`](.agents/skills/admin-domain-resource/SKILL.md)
 - [`verify-design-doc`](.agents/skills/verify-design-doc/SKILL.md)
 - [`pre-push-local-gates`](.agents/skills/pre-push-local-gates/SKILL.md)

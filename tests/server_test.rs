@@ -97,6 +97,46 @@ async fn register_set_password_create_project_and_status() {
     let (status, me) = json_request(app.clone(), "GET", "/api/v1/me", Some(&session), None).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(me["email"], "ada@example.com");
+    assert!(me.get("password_hash").is_none());
+
+    let (status, _) = json_request(
+        app.clone(),
+        "POST",
+        "/api/v1/me/password",
+        Some(&session),
+        Some(serde_json::json!({
+            "current_password": "password1",
+            "new_password": "password2"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, _) = json_request(
+        app.clone(),
+        "POST",
+        "/api/v1/auth/login",
+        None,
+        Some(serde_json::json!({
+            "email": "ada@example.com",
+            "password": "password1"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    let (status, login) = json_request(
+        app.clone(),
+        "POST",
+        "/api/v1/auth/login",
+        None,
+        Some(serde_json::json!({
+            "email": "ada@example.com",
+            "password": "password2"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{login}");
 
     let (status, project) = json_request(
         app.clone(),
