@@ -22,7 +22,7 @@ impl Default for Config {
                 .and_then(|p| p.parse().ok())
                 .unwrap_or(8080),
             public_origin: std::env::var("OPENHUB_PUBLIC_ORIGIN")
-                .unwrap_or_else(|_| "https://openhun.run".to_string()),
+                .unwrap_or_else(|_| "https://openhub.run".to_string()),
             data_dir: std::env::var("OPENHUB_DATA_DIR")
                 .map(PathBuf::from)
                 .unwrap_or_else(|_| PathBuf::from("./data/repos")),

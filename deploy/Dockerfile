@@ -14,7 +14,7 @@ RUN apt-get update \
 COPY --from=build /src/target/release/openhub /usr/local/bin/openhub
 ENV OPENHUB_HOST=0.0.0.0
 ENV OPENHUB_PORT=8080
-ENV OPENHUB_PUBLIC_ORIGIN=https://openhun.run
+ENV OPENHUB_PUBLIC_ORIGIN=https://openhub.run
 ENV OPENHUB_DATA_DIR=/data/repos
 ENV OPENHUB_CELLS_DIR=/data/cells
 ENV OPENHUB_CELLS_STORAGE_DIR=/data/cells-storage

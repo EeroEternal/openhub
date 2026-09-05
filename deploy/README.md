@@ -1,6 +1,6 @@
 # Deploy OpenHub (GCP + Cloudflare)
 
-Public name: **openhun.run**. Origin: one GCP VM running this binary (or the Docker image). Cloudflare is DNS + TLS proxy only — not Workers, not Pages.
+Public name: **openhub.run**. Origin: one GCP VM running this binary (or the Docker image). Cloudflare is DNS + TLS proxy only — not Workers, not Pages.
 
 ## 1. GCP VM
 
@@ -17,7 +17,7 @@ docker build -t openhub:local -f deploy/Dockerfile .
 docker run -d --name openhub --restart unless-stopped \
   -p 127.0.0.1:8080:8080 \
   -v /var/lib/openhub:/data \
-  -e OPENHUB_PUBLIC_ORIGIN=https://openhun.run \
+  -e OPENHUB_PUBLIC_ORIGIN=https://openhub.run \
   openhub:local
 ```
 
@@ -26,7 +26,7 @@ Health: `curl -s http://127.0.0.1:8080/health`.
 Put Caddy (or nginx) in front with a **Cloudflare Origin Certificate** (Cloudflare dashboard → SSL → Origin Server). Example Caddyfile:
 
 ```caddy
-openhun.run, www.openhun.run {
+openhub.run, www.openhub.run {
     reverse_proxy 127.0.0.1:8080
     tls /etc/caddy/origin.pem /etc/caddy/origin.key
 }
@@ -34,7 +34,7 @@ openhun.run, www.openhun.run {
 
 ## 3. Cloudflare DNS
 
-In the zone **openhun.run**:
+In the zone **openhub.run**:
 
 | Type | Name | Content | Proxy |
 | --- | --- | --- | --- |
@@ -43,11 +43,11 @@ In the zone **openhun.run**:
 
 SSL/TLS mode: **Full (strict)**.
 
-Optional: Cloudflare Access on `openhun.run` so the origin stays without app-level auth for now.
+Optional: Cloudflare Access on `openhub.run` so the origin stays without app-level auth for now.
 
 ## 4. Check
 
 ```bash
-curl -sS https://openhun.run/health
+curl -sS https://openhub.run/health
 # {"status":"ok","service":"openhub"}
 ```

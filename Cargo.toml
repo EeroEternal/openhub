@@ -3,7 +3,7 @@ name = "openhub"
 version = "0.1.0"
 edition = "2024"
 authors = ["EeroEternal"]
-description = "OpenHub hosted origin for openhun.run — GCP compute behind Cloudflare DNS"
+description = "OpenHub hosted origin for openhub.run — GCP compute behind Cloudflare DNS"
 
 [dependencies]
 tokio = { version = "1.43", features = ["full"] }
