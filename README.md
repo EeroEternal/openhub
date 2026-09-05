@@ -27,7 +27,7 @@ cargo run
 cd admin && npm install && npm run dev
 ```
 
-Open http://127.0.0.1:5173 — register, set password from the mailed `/verify?token=` link, then create projects.
+Open http://127.0.0.1:5180 — register, set password from the mailed `/verify?token=` link, then create projects.
 
 ```bash
 curl -s http://127.0.0.1:8080/health
