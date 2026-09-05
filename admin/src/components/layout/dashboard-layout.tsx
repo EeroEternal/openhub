@@ -4,7 +4,6 @@ import { AppSidebar } from "./app-sidebar"
 import { SiteHeader } from "./header"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { PageLoading } from "@/components/ui/page-loading"
-import { Toaster } from "@/components/ui/sonner"
 
 export function DashboardLayout() {
   return (
@@ -20,7 +19,6 @@ export function DashboardLayout() {
           </div>
         </main>
       </SidebarInset>
-      <Toaster position="top-center" richColors />
     </SidebarProvider>
   )
 }

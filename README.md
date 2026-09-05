@@ -20,7 +20,16 @@ GCP VM :8080         openhub  (embeds gitcell)
 ## Local
 
 ```bash
+# API
 cargo run
+
+# UI (console-kit admin, proxies /api to :8080)
+cd admin && npm install && npm run dev
+```
+
+Open http://127.0.0.1:5173 — register, set password from the mailed `/verify?token=` link, then create projects.
+
+```bash
 curl -s http://127.0.0.1:8080/health
 # {"status":"ok","service":"openhub"}
 

@@ -41,7 +41,7 @@ pub async fn register(
     let raw = random_token();
     store::insert_token(&hub.db, &user.id, "verify", &hash_token(&raw), 24).await?;
     let url = format!(
-        "{}/auth/verify?token={raw}",
+        "{}/verify?token={raw}",
         hub.public_origin.trim_end_matches('/')
     );
     hub.mail.send_verify_email(&email, &url).await?;

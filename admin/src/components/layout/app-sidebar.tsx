@@ -15,6 +15,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import { APP_TITLE, NAV_SECTIONS, type NavItem, type NavSection } from "@/lib/nav"
+import { t, useI18n } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
 
 const SECTION_PREVIEW_COUNT = 3
@@ -43,6 +44,7 @@ function NavSectionGroup({
   section: NavSection
   pathname: string
 }) {
+  useI18n()
   const { state } = useSidebar()
   const [expandedMap, setExpandedMap] = React.useState<Record<string, boolean>>(loadExpandedSections)
   const collapsedItems = splitVisibleItems(section.items, false)
@@ -66,16 +68,16 @@ function NavSectionGroup({
 
   return (
     <SidebarGroup>
-      <SidebarGroupLabel className="text-sidebar-foreground/85">{section.title}</SidebarGroupLabel>
+      <SidebarGroupLabel className="text-sidebar-foreground/85">{t(section.titleKey)}</SidebarGroupLabel>
       <SidebarMenu>
         {visibleItems.map((item) => {
           const isActive = pathname === item.href
           return (
             <SidebarMenuItem key={item.href}>
-              <SidebarMenuButton asChild tooltip={item.name} isActive={isActive}>
+              <SidebarMenuButton asChild tooltip={t(item.nameKey)} isActive={isActive}>
                 <Link to={item.href} className={cn("flex items-center gap-3")}>
                   <item.icon className="size-4" />
-                  <span>{item.name}</span>
+                  <span>{t(item.nameKey)}</span>
                 </Link>
               </SidebarMenuButton>
             </SidebarMenuItem>
@@ -100,6 +102,7 @@ function NavSectionGroup({
 }
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+  useI18n()
   const location = useLocation()
 
   return (
@@ -110,7 +113,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             <SidebarMenuButton size="lg" asChild>
               <Link to="/">
                 <div className="flex size-8 items-center justify-center rounded-md bg-primary text-primary-foreground text-sm font-semibold">
-                  A
+                  O
                 </div>
                 <div className="grid min-w-0 flex-1 text-left text-sm leading-tight">
                   <span className="break-words font-semibold text-base leading-5">{APP_TITLE}</span>
