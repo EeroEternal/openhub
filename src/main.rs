@@ -1,5 +1,7 @@
-use gitcell::server::AppState;
-use openhub::{config::Config, error::Result, server};
+use gitcell::server::AppState as GitcellState;
+use openhub::mail::Mailer;
+use openhub::server::HubState;
+use openhub::{config::Config, error::Result, server, store};
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -13,13 +15,21 @@ async fn main() -> Result<()> {
         .init();
 
     let config = Config::default();
-    let state = AppState::new(
+    let gitcell = GitcellState::new(
         &config.data_dir,
         &config.cells_dir,
         &config.cells_storage_dir,
         config.cells_lease_ttl_secs,
     )?;
-    let app = server::create_router(state);
+    let db = store::connect(&config.database_url).await?;
+    store::migrate(&db).await?;
+    let hub = HubState {
+        gitcell,
+        db,
+        mail: Mailer::from_env(),
+        public_origin: config.public_origin.clone(),
+    };
+    let app = server::create_router(hub);
 
     let addr = format!("{}:{}", config.host, config.port);
     info!(

@@ -38,6 +38,9 @@ Working trees: `$OPENHUB_DATA_DIR/<repo>` (default `./data/repos/<repo>`). Same 
 | `OPENHUB_CELLS_DIR` | `./data/cells` | cellz event logs |
 | `OPENHUB_CELLS_STORAGE_DIR` | `./data/cells-storage` | cellz snapshots |
 | `OPENHUB_CELLS_LEASE_TTL_SECS` | `60` | cellz lease TTL |
+| `OPENHUB_DATABASE_PATH` | `./data/openhub.db` | SQLite (users/projects; Postgres later) |
+| `OPENHUB_MAIL_ENDPOINT` | unset | POST JSON `{to,subject,text}` with bearer token |
+| `OPENHUB_MAIL_TOKEN` | unset | If unset, verify URLs are only logged |
 
 ## Deploy
 

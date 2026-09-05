@@ -9,7 +9,7 @@ This document serves as the **high-density, lightweight entry point (attention s
 | **Standing Constraints** | Inviolable rules across all tasks | This file ("Always Active"); expanded in [`docs/ai/agents/`](docs/ai/agents/) |
 | **Reusable Workflows** | Domain-specific procedures & validation commands (Token Relief Valve) | `.agents/skills/*/SKILL.md` (Authoritative) |
 | **Vendor/Env Bridges** | Tooling or Cloud VM nuances | [`docs/ai/`](docs/ai/) (No root bifurcation allowed) |
-| **Domain Specs** | UI / Architecture / Data abstractions | [`docs/design.md`](docs/design.md) + [`docs/architecture.md`](docs/architecture.md) |
+| **Domain Specs** | Product / Architecture | [`docs/product.md`](docs/product.md) + [`docs/architecture.md`](docs/architecture.md) |
 
 - **Token Budget & Zero-Sum Updates**: As a resident system prompt weight, this file has a strict hard limit of **80 lines / 1200 Tokens**. Near the limit, follow the **zero-sum rule (add one, remove one)**.
 - **Anti-Anecdote & Batch Threshold**: Never add global rules based on isolated single-session mistakes. Rules must appear in **≥ 2 independent session transcripts** and be refined via skill [`promote-lesson`](.agents/skills/promote-lesson/SKILL.md) with explicit human review.
@@ -21,14 +21,14 @@ This document serves as the **high-density, lightweight entry point (attention s
 | Any visible page / report / landing / HTML / Admin UI | skill [`admin-ui-change`](.agents/skills/admin-ui-change/SKILL.md) → [`docs/design.md`](docs/design.md); details in [`ui-entry.md`](docs/ai/agents/ui-entry.md) |
 | Admin domain modules / API contract tiering | skill [`admin-domain-resource`](.agents/skills/admin-domain-resource/SKILL.md) |
 | `git stash` operations | skill [`git-stash-safe`](.agents/skills/git-stash-safe/SKILL.md) |
-| Adding SQL migrations (`migrations/NNN_*.sql`) | skill [`add-sql-migration`](.agents/skills/add-sql-migration/SKILL.md) |
+| Adding SQL migrations (`migrations/NNN_*.sql`) | skill [`add-sql-migration`](.agents/skills/add-sql-migration/SKILL.md) + this file (SQL portability) |
+| Accounts / projects / sync protocol | [`docs/product.md`](docs/product.md) |
 | Writing design docs in `docs/` / DDL / Mermaid | skill [`verify-design-doc`](.agents/skills/verify-design-doc/SKILL.md) |
 | Release / tagging / production deployment | skill [`release`](.agents/skills/release/SKILL.md) |
 | Code review / PR audit / acceptance verification | skill [`review`](.agents/skills/review/SKILL.md) (Independent read-only context) |
 | CI pipelines / concurrency / test sharding / caching | skill [`ci-concurrency-optimization`](.agents/skills/ci-concurrency-optimization/SKILL.md) |
 | Autonomous agent loops / cron tasks | [`loop-charter.md`](docs/ai/agents/loop-charter.md) |
 | `tokio::spawn` / daemons / script modifications / exit codes | [`engineering.md`](docs/ai/agents/engineering.md) |
-| API key lifecycle / rotation / single-reveal / hash security | skill [`api-key-lifecycle-security`](.agents/skills/api-key-lifecycle-security/SKILL.md) |
 | Commit message conventions | [`commit-style.md`](docs/ai/agents/commit-style.md) |
 | Cross-module boundaries / crate splitting / SQL joins | [`module-boundaries.md`](docs/architecture/module-boundaries.md) |
 
@@ -41,7 +41,7 @@ This document serves as the **high-density, lightweight entry point (attention s
 5. **UI stack + viewport**: Product UI is the in-repo React kit (`admin/` or `frontend/`). **Never** ship parallel HTML/JS pages. Dialogs `max-h-[85vh]` + `overflow-y-auto`. No casual subtitles. Global config only on Settings.
 6. **Admin i18n & Linguistic Purity**: All user-visible copy must use `t('namespace.key')` and be written symmetrically to `zh.ts` and `en.ts`. Mixed languages are strictly prohibited.
 7. **Sorting & Search Clarity**: Entity sorting options must explicitly indicate direction (e.g., "Created (New → Old)"); search placeholder text must truthfully state searchable fields.
-8. **Core Data Plane vs. Plugin Boundary**: Custom business logic (headers, auth decoration, masking, session tracking) **must be implemented as Plugins/Middleware**, never hardcoded into the core data pipeline.
+8. **SQL portability (SQLite now, Postgres later)**: Schema and queries must run on both. TEXT ids, RFC3339 timestamps, no `JSONB` / `ARRAY` / `ILIKE` / SQLite `PRAGMA` in `migrations/`. All SQL lives in `src/store.rs` (bind style `?` is sqlite-only — do not scatter raw SQL). Do not use sqlite-only types (`INTEGER PRIMARY KEY AUTOINCREMENT` as the public id). `RETURNING` is allowed.
 9. **Release Promoter Process**: Tagging and releasing must follow skill [`release`](.agents/skills/release/SKILL.md) (full local gate re-run → multi-point check → human approval hard stop → deployment verification).
 10. **Pre-push Local Quality Gate**: Never use CI as a local sandbox; run full local quality gates (fmt, clippy, tests, admin tsc/build) via skill [`pre-push-local-gates`](.agents/skills/pre-push-local-gates/SKILL.md) before pushing.
 

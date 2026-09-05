@@ -1,5 +1,7 @@
 # Architecture & Domain Boundaries
 
+Product contract (accounts, projects, sync protocol): [`product.md`](product.md).
+
 This document defines the system architectural model, core component boundaries, and data flow principles.
 
 ## 1. Architecture Overview
