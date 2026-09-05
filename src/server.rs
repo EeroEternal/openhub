@@ -18,6 +18,7 @@ use tower_http::trace::TraceLayer;
 
 use crate::auth;
 use crate::error::Error;
+use crate::git_http;
 use crate::git_sync;
 use crate::mail::Mailer;
 use crate::projects;
@@ -57,6 +58,9 @@ pub fn create_router(hub: HubState) -> Router {
             "/api/v1/projects/{id}/git/bundle",
             get(git_sync::download).put(git_sync::upload),
         )
+        .route("/git/{id}/info/refs", get(git_http::info_refs))
+        .route("/git/{id}/git-upload-pack", post(git_http::upload_pack))
+        .route("/git/{id}/git-receive-pack", post(git_http::receive_pack))
         .with_state(hub);
 
     Router::new()

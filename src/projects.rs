@@ -33,6 +33,7 @@ pub async fn create(
     let repo_path = hub.gitcell.data_dir.join(&project.id);
     gitcell::git_ops::init(&repo_path)
         .map_err(|e| Error::Internal(anyhow::anyhow!(e.to_string())))?;
+    crate::git_http::ensure_http_enabled(&repo_path)?;
     Ok(Json(json!({
         "id": project.id,
         "slug": project.slug,

@@ -119,6 +119,32 @@ async fn clone_project(args: Vec<String>) -> Result<()> {
     let dir = PathBuf::from(args.get(1).cloned().unwrap_or_else(|| project_id.clone()));
     let creds = load_creds()?;
     let client = client(&creds);
+    let git_url = format!("{}/git/{project_id}", creds.origin);
+    let header = format!("http.extraHeader=Authorization: Bearer {}", creds.token);
+    let cloned = Command::new("git")
+        .args([
+            "-c",
+            &header,
+            "clone",
+            &git_url,
+            dir.to_str().unwrap_or("."),
+        ])
+        .status()
+        .ok()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if cloned {
+        write_repo_meta(
+            &dir,
+            &RepoMeta {
+                project_id: project_id.clone(),
+                origin: creds.origin.clone(),
+            },
+        )?;
+        pull_events(&client, &creds, &project_id, &dir).await?;
+        println!("cloned {project_id} -> {}", dir.display());
+        return Ok(());
+    }
     let bundle = client
         .get(format!(
             "{}/api/v1/projects/{project_id}/git/bundle",

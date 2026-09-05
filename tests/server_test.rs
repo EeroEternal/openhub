@@ -160,7 +160,7 @@ async fn register_set_password_create_project_and_status() {
     assert_eq!(pushed["accepted"], 1);
 
     let (status, pulled) = json_request(
-        app,
+        app.clone(),
         "GET",
         &format!("/api/v1/projects/{id}/events"),
         Some(&session),
@@ -170,4 +170,24 @@ async fn register_set_password_create_project_and_status() {
     assert_eq!(status, StatusCode::OK, "{pulled}");
     assert_eq!(pulled["events"].as_array().unwrap().len(), 1);
     assert_eq!(pulled["events"][0]["id"], "evt-1");
+
+    let (status, _) = json_request(
+        app.clone(),
+        "GET",
+        &format!("/git/{id}/info/refs?service=git-upload-pack"),
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    let (status, refs) = json_request(
+        app,
+        "GET",
+        &format!("/git/{id}/info/refs?service=git-upload-pack"),
+        Some(&session),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{refs}");
 }
