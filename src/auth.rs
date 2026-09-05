@@ -12,6 +12,8 @@ use crate::store;
 #[derive(Debug, Deserialize)]
 pub struct RegisterRequest {
     pub email: String,
+    #[serde(default)]
+    pub password: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -38,6 +40,18 @@ pub async fn register(
         Some(user) => user,
         None => store::insert_user(&hub.db, &email).await?,
     };
+    if hub.mail.skips_email() {
+        let password = body.password.unwrap_or_default();
+        if password.len() < 8 {
+            return Err(Error::InvalidRequest(
+                "password must be at least 8 characters".into(),
+            ));
+        }
+        let hash = hash_password(&password)?;
+        store::set_password_and_verify(&hub.db, &user.id, &hash).await?;
+        let session = issue_session(&hub, &user.id).await?;
+        return Ok(Json(json!({ "ok": true, "token": session })));
+    }
     let raw = random_token();
     store::insert_token(&hub.db, &user.id, "verify", &hash_token(&raw), 24).await?;
     let url = format!(

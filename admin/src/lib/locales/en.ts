@@ -8,7 +8,7 @@ export const en: Record<string, string> = {
   "auth.confirmPassword": "Confirm password",
   "auth.noAccount": "Need an account?",
   "auth.hasAccount": "Already have an account?",
-  "auth.registerHint": "We will email a link to set your password.",
+  "auth.registerHint": "Choose a password to sign in. Email is only used when mail is configured.",
   "auth.registerOk": "Check your email for the password link.",
   "auth.verifyTitle": "Set password",
   "auth.passwordMismatch": "Passwords do not match",

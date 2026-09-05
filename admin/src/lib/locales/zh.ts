@@ -8,7 +8,7 @@ export const zh: Record<string, string> = {
   "auth.confirmPassword": "确认密码",
   "auth.noAccount": "没有账号？",
   "auth.hasAccount": "已有账号？",
-  "auth.registerHint": "我们会发一封邮件，用来设置密码。",
+  "auth.registerHint": "设置密码后即可登录。只有配置了邮件服务才会发验证信。",
   "auth.registerOk": "请查收邮件中的设置密码链接。",
   "auth.verifyTitle": "设置密码",
   "auth.passwordMismatch": "两次密码不一致",

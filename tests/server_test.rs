@@ -78,28 +78,17 @@ async fn repos_require_auth() {
 #[tokio::test]
 async fn register_set_password_create_project_and_status() {
     let (hub, _tmp) = test_hub().await;
-    let mail = hub.mail.clone();
     let app = create_router(hub);
-
-    let (status, _) = json_request(
-        app.clone(),
-        "POST",
-        "/api/v1/auth/register",
-        None,
-        Some(serde_json::json!({"email": "Ada@Example.com"})),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-
-    let url = mail.last_verify_url.lock().unwrap().clone().unwrap();
-    let token = url.split("token=").nth(1).unwrap().to_string();
 
     let (status, body) = json_request(
         app.clone(),
         "POST",
-        "/api/v1/auth/password",
+        "/api/v1/auth/register",
         None,
-        Some(serde_json::json!({"token": token, "password": "password1"})),
+        Some(serde_json::json!({
+            "email": "Ada@Example.com",
+            "password": "password1"
+        })),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");

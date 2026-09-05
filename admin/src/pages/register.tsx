@@ -1,16 +1,19 @@
 import { useState, type FormEvent } from "react"
-import { Link, Navigate } from "react-router-dom"
+import { Link, Navigate, useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { api, getToken } from "@/lib/api"
+import { api, getToken, setToken } from "@/lib/api"
 import { t, useI18n } from "@/lib/i18n"
 
 export default function RegisterPage() {
   useI18n()
+  const navigate = useNavigate()
   const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+  const [confirm, setConfirm] = useState("")
   const [pending, setPending] = useState(false)
   const [done, setDone] = useState(false)
 
@@ -18,12 +21,21 @@ export default function RegisterPage() {
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
+    if (password !== confirm) {
+      toast.error(t("auth.passwordMismatch"))
+      return
+    }
     setPending(true)
     try {
-      await api("/api/v1/auth/register", {
+      const res = await api<{ ok: boolean; token?: string }>("/api/v1/auth/register", {
         method: "POST",
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, password }),
       })
+      if (res.token) {
+        setToken(res.token)
+        navigate("/", { replace: true })
+        return
+      }
       setDone(true)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("common.error"))
@@ -40,7 +52,6 @@ export default function RegisterPage() {
           <p className="text-body-md text-foreground">{t("auth.registerOk")}</p>
         ) : (
           <form className="space-y-4" onSubmit={onSubmit}>
-            <p className="text-body-md text-muted-foreground">{t("auth.registerHint")}</p>
             <div className="space-y-2">
               <Label htmlFor="email">{t("auth.email")}</Label>
               <Input
@@ -49,6 +60,30 @@ export default function RegisterPage() {
                 autoComplete="username"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="password">{t("auth.password")}</Label>
+              <Input
+                id="password"
+                type="password"
+                autoComplete="new-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                minLength={8}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirm">{t("auth.confirmPassword")}</Label>
+              <Input
+                id="confirm"
+                type="password"
+                autoComplete="new-password"
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+                minLength={8}
                 required
               />
             </div>

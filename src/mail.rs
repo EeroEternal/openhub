@@ -43,6 +43,10 @@ impl Mailer {
         }
     }
 
+    pub fn skips_email(&self) -> bool {
+        matches!(self.inner, MailerKind::Log)
+    }
+
     pub async fn send_verify_email(&self, to: &str, verify_url: &str) -> Result<()> {
         if let Ok(mut g) = self.last_verify_url.lock() {
             *g = Some(verify_url.to_string());
