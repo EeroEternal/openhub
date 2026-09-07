@@ -36,11 +36,11 @@ pub async fn pull(
     Query(query): Query<EventsQuery>,
     headers: HeaderMap,
 ) -> Result<Json<Value>> {
-    require_owner(&hub, &headers, &project_id).await?;
+    let project = resolve_project(&hub, &headers, &project_id).await?;
     let handle = hub
         .gitcell
         .cell_manager
-        .get_or_activate(&project_id)
+        .get_or_activate(&project.id)
         .await?;
     let limit = query.limit.unwrap_or(200).clamp(1, 1000);
     let records = handle.get_events(query.since, Some(limit)).await?;
@@ -70,11 +70,11 @@ pub async fn push(
     headers: HeaderMap,
     Json(body): Json<PushEventsRequest>,
 ) -> Result<Json<Value>> {
-    require_owner(&hub, &headers, &project_id).await?;
+    let project = resolve_project(&hub, &headers, &project_id).await?;
     let handle = hub
         .gitcell
         .cell_manager
-        .get_or_activate(&project_id)
+        .get_or_activate(&project.id)
         .await?;
     let existing = handle.get_events(None, Some(1000)).await?;
     let mut known = std::collections::HashSet::new();
@@ -108,10 +108,51 @@ pub async fn push(
     Ok(Json(json!({ "accepted": accepted, "skipped": skipped })))
 }
 
-async fn require_owner(hub: &HubState, headers: &HeaderMap, project_id: &str) -> Result<()> {
+pub async fn pull_user_repo(
+    State(hub): State<HubState>,
+    Path((username, slug)): Path<(String, String)>,
+    Query(query): Query<EventsQuery>,
+    headers: HeaderMap,
+) -> Result<Json<Value>> {
+    pull(
+        State(hub),
+        Path(format!("{username}/{slug}")),
+        Query(query),
+        headers,
+    )
+    .await
+}
+
+pub async fn push_user_repo(
+    State(hub): State<HubState>,
+    Path((username, slug)): Path<(String, String)>,
+    headers: HeaderMap,
+    body: Json<PushEventsRequest>,
+) -> Result<Json<Value>> {
+    push(
+        State(hub),
+        Path(format!("{username}/{slug}")),
+        headers,
+        body,
+    )
+    .await
+}
+
+async fn resolve_project(
+    hub: &HubState,
+    headers: &HeaderMap,
+    identifier: &str,
+) -> Result<store::Project> {
     let user = auth::user_from_headers(hub, headers).await?;
-    if !store::project_owned(&hub.db, project_id, &user.id).await? {
+    let project = if let Some((username, slug)) = identifier.split_once('/') {
+        store::find_project_by_username_and_slug(&hub.db, username, slug).await?
+    } else {
+        store::find_project_by_id_or_slug(&hub.db, &user.id, identifier).await?
+    };
+
+    let p = project.ok_or_else(|| Error::NotFound("project not found".into()))?;
+    if p.owner_id != user.id {
         return Err(Error::NotFound("project not found".into()));
     }
-    Ok(())
+    Ok(p)
 }

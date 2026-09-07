@@ -25,8 +25,8 @@ pub async fn info_refs(
     Query(query): Query<InfoRefsQuery>,
     headers: HeaderMap,
 ) -> Result<Response> {
-    authorize(&hub, &headers, &project_id).await?;
-    let repo = hub.gitcell.data_dir.join(&project_id);
+    let project = authorize(&hub, &headers, &project_id).await?;
+    let repo = hub.gitcell.data_dir.join(&project.id);
     ensure_http_enabled(&repo)?;
     let qs = query
         .service
@@ -35,7 +35,7 @@ pub async fn info_refs(
         .unwrap_or_default();
     cgi(
         &hub.gitcell.data_dir,
-        &project_id,
+        &project.id,
         Method::GET,
         "/info/refs",
         &qs,
@@ -49,12 +49,12 @@ pub async fn upload_pack(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response> {
-    authorize(&hub, &headers, &project_id).await?;
-    let repo = hub.gitcell.data_dir.join(&project_id);
+    let project = authorize(&hub, &headers, &project_id).await?;
+    let repo = hub.gitcell.data_dir.join(&project.id);
     ensure_http_enabled(&repo)?;
     cgi(
         &hub.gitcell.data_dir,
-        &project_id,
+        &project.id,
         Method::POST,
         "/git-upload-pack",
         "",
@@ -68,12 +68,12 @@ pub async fn receive_pack(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response> {
-    authorize(&hub, &headers, &project_id).await?;
-    let repo = hub.gitcell.data_dir.join(&project_id);
+    let project = authorize(&hub, &headers, &project_id).await?;
+    let repo = hub.gitcell.data_dir.join(&project.id);
     ensure_http_enabled(&repo)?;
     cgi(
         &hub.gitcell.data_dir,
-        &project_id,
+        &project.id,
         Method::POST,
         "/git-receive-pack",
         "",
@@ -81,16 +81,105 @@ pub async fn receive_pack(
     )
 }
 
-async fn authorize(hub: &HubState, headers: &HeaderMap, project_id: &str) -> Result<()> {
+pub async fn info_refs_user_repo(
+    State(hub): State<HubState>,
+    AxumPath((username, repo_name)): AxumPath<(String, String)>,
+    Query(query): Query<InfoRefsQuery>,
+    headers: HeaderMap,
+) -> Result<Response> {
+    let clean_repo = repo_name.strip_suffix(".git").unwrap_or(&repo_name);
+    let project = authorize_user_repo(&hub, &headers, &username, clean_repo).await?;
+    let repo = hub.gitcell.data_dir.join(&project.id);
+    ensure_http_enabled(&repo)?;
+    let qs = query
+        .service
+        .as_deref()
+        .map(|s| format!("service={s}"))
+        .unwrap_or_default();
+    cgi(
+        &hub.gitcell.data_dir,
+        &project.id,
+        Method::GET,
+        "/info/refs",
+        &qs,
+        &[],
+    )
+}
+
+pub async fn upload_pack_user_repo(
+    State(hub): State<HubState>,
+    AxumPath((username, repo_name)): AxumPath<(String, String)>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response> {
+    let clean_repo = repo_name.strip_suffix(".git").unwrap_or(&repo_name);
+    let project = authorize_user_repo(&hub, &headers, &username, clean_repo).await?;
+    let repo = hub.gitcell.data_dir.join(&project.id);
+    ensure_http_enabled(&repo)?;
+    cgi(
+        &hub.gitcell.data_dir,
+        &project.id,
+        Method::POST,
+        "/git-upload-pack",
+        "",
+        &body,
+    )
+}
+
+pub async fn receive_pack_user_repo(
+    State(hub): State<HubState>,
+    AxumPath((username, repo_name)): AxumPath<(String, String)>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response> {
+    let clean_repo = repo_name.strip_suffix(".git").unwrap_or(&repo_name);
+    let project = authorize_user_repo(&hub, &headers, &username, clean_repo).await?;
+    let repo = hub.gitcell.data_dir.join(&project.id);
+    ensure_http_enabled(&repo)?;
+    cgi(
+        &hub.gitcell.data_dir,
+        &project.id,
+        Method::POST,
+        "/git-receive-pack",
+        "",
+        &body,
+    )
+}
+
+async fn authorize_user_repo(
+    hub: &HubState,
+    headers: &HeaderMap,
+    username: &str,
+    repo_name: &str,
+) -> Result<store::Project> {
     let raw = token_from_headers(headers)
         .ok_or_else(|| Error::Unauthorized("missing git auth".into()))?;
     let user = store::find_session_user(&hub.db, &auth::hash_token(&raw))
         .await?
         .ok_or_else(|| Error::Unauthorized("invalid session".into()))?;
-    if !store::project_owned(&hub.db, project_id, &user.id).await? {
+    let project = store::find_project_by_username_and_slug(&hub.db, username, repo_name)
+        .await?
+        .ok_or_else(|| Error::NotFound("project not found".into()))?;
+    if project.owner_id != user.id {
         return Err(Error::NotFound("project not found".into()));
     }
-    Ok(())
+    Ok(project)
+}
+
+async fn authorize(
+    hub: &HubState,
+    headers: &HeaderMap,
+    identifier: &str,
+) -> Result<store::Project> {
+    let raw = token_from_headers(headers)
+        .ok_or_else(|| Error::Unauthorized("missing git auth".into()))?;
+    let user = store::find_session_user(&hub.db, &auth::hash_token(&raw))
+        .await?
+        .ok_or_else(|| Error::Unauthorized("invalid session".into()))?;
+    let project = store::find_project_by_id_or_slug(&hub.db, &user.id, identifier)
+        .await?
+        .ok_or_else(|| Error::NotFound("project not found".into()))?;
+    Ok(project)
 }
 
 fn token_from_headers(headers: &HeaderMap) -> Option<String> {
@@ -116,6 +205,8 @@ pub fn ensure_http_enabled(repo: &Path) -> Result<()> {
         ("http.receivepack", "true"),
         ("http.uploadpack", "true"),
         ("receive.denyCurrentBranch", "updateInstead"),
+        ("uploadpack.allowFilter", "true"),
+        ("uploadpackfilter.allow", "true"),
     ] {
         let st = Command::new("git")
             .args(["config", key, val])

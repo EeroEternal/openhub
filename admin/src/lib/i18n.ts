@@ -19,9 +19,26 @@ function readLang(): Lang {
 let language: Lang = typeof window === "undefined" ? "en" : readLang()
 const listeners = new Set<() => void>()
 
-export function t(key: string, fallback?: string): string {
+export function t(key: string, paramsOrFallback?: Record<string, string | number> | string, fallback?: string): string {
   const dict = language === "zh" ? zh : en
-  return dict[key] ?? fallback ?? key
+  let text = dict[key]
+  let params: Record<string, string | number> | undefined
+
+  if (typeof paramsOrFallback === "object" && paramsOrFallback !== null) {
+    params = paramsOrFallback
+  } else if (typeof paramsOrFallback === "string") {
+    fallback = paramsOrFallback
+  }
+
+  text = text ?? fallback ?? key
+
+  if (params) {
+    for (const [k, v] of Object.entries(params)) {
+      text = text.replace(new RegExp(`\\{\\{${k}\\}\\}`, "g"), String(v))
+    }
+  }
+
+  return text
 }
 
 export function useI18n() {

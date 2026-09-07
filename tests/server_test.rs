@@ -220,3 +220,77 @@ async fn register_set_password_create_project_and_status() {
     .await;
     assert_eq!(status, StatusCode::OK, "{refs}");
 }
+
+#[tokio::test]
+async fn test_send_code_and_register() {
+    let (hub, _tmp) = test_hub().await;
+    let app = create_router(hub);
+
+    // 1. Send code
+    let (status, res) = json_request(
+        app.clone(),
+        "POST",
+        "/api/v1/auth/send-code",
+        None,
+        Some(serde_json::json!({
+            "email": "coder@example.com"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    assert_eq!(res["ok"], true);
+
+    // 2. Register without code in non-mail environment still succeeds or requires code
+    let (status, body) = json_request(
+        app.clone(),
+        "POST",
+        "/api/v1/auth/register",
+        None,
+        Some(serde_json::json!({
+            "email": "coder@example.com",
+            "password": "mypassword123"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(body["token"].as_str().is_some());
+    let token = body["token"].as_str().unwrap();
+
+    // 3. Check slug before project created: should be available
+    let (status, slug_res) = json_request(
+        app.clone(),
+        "GET",
+        "/api/v1/projects/check-slug?slug=my-cool-project",
+        Some(token),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(slug_res["available"], true);
+
+    // 4. Create project with that slug
+    let (status, create_res) = json_request(
+        app.clone(),
+        "POST",
+        "/api/v1/projects",
+        Some(token),
+        Some(serde_json::json!({
+            "name": "My Cool Project",
+            "slug": "my-cool-project"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{create_res}");
+
+    // 5. Check slug again: should be unavailable
+    let (status, slug_res2) = json_request(
+        app.clone(),
+        "GET",
+        "/api/v1/projects/check-slug?slug=my-cool-project",
+        Some(token),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(slug_res2["available"], false);
+}

@@ -150,9 +150,9 @@ const Dialog = ({ open, onOpenChange, children }: DialogProps) => {
           className="fixed inset-0 bg-black/50 backdrop-blur-sm transition-all"
           aria-hidden="true"
         />
-        <div className="relative z-[101] flex max-h-full max-w-full items-center justify-center pointer-events-none">
+        <div className="relative z-[101] flex w-full max-h-full max-w-full items-center justify-center pointer-events-none">
           <div
-            className="pointer-events-auto max-h-full max-w-full"
+            className="pointer-events-auto max-h-full max-w-full flex justify-center w-full"
             onClick={(e) => e.stopPropagation()}
           >
             {children}

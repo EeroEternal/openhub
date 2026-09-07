@@ -1,6 +1,6 @@
 ---
 name: api-key-lifecycle-security
-description: Financial-grade API key lifecycle security standards: irreversible hash storage, single-reveal upon create/rotate in modal dialogs with copy/download, and masked read-only display. Use when designing, reviewing, or implementing API key management, rotation, creation, display, or storage.
+description: "Financial-grade API key lifecycle security standards: irreversible hash storage, single-reveal upon create/rotate in modal dialogs with copy/download, and masked read-only display. Use when designing, reviewing, or implementing API key management, rotation, creation, display, or storage."
 ---
 
 # API Key 生命周期与金融合规安全规范 (API Key Lifecycle Security)

@@ -7,7 +7,7 @@ use axum::http::Request;
 use axum::response::{IntoResponse, Response};
 use axum::{
     Json, Router,
-    routing::{get, post},
+    routing::{delete, get, post},
 };
 use gitcell::server::{AppState as GitcellState, api_router};
 use serde_json::{Value, json};
@@ -40,6 +40,8 @@ pub fn create_router(hub: HubState) -> Router {
         .layer(GitcellAuthLayer(hub.clone()));
 
     let api = Router::new()
+        .route("/api/v1/auth/send-code", post(auth::send_code))
+        .route("/api/v1/auth/verify-code", post(auth::verify_code))
         .route("/api/v1/auth/register", post(auth::register))
         .route("/api/v1/auth/password", post(auth::set_password))
         .route("/api/v1/auth/login", post(auth::login))
@@ -47,13 +49,27 @@ pub fn create_router(hub: HubState) -> Router {
         .route("/api/v1/me", get(auth::me))
         .route("/api/v1/me/password", post(auth::change_password))
         .route(
+            "/api/v1/me/tokens",
+            get(auth::list_pats).post(auth::create_pat),
+        )
+        .route("/api/v1/me/tokens/{id}", delete(auth::delete_pat))
+        .route(
             "/api/v1/projects",
             get(projects::list).post(projects::create),
         )
+        .route("/api/v1/projects/check-slug", get(projects::check_slug))
         .route("/api/v1/projects/{id}", get(projects::get))
+        .route(
+            "/api/v1/projects/{username}/{slug}",
+            get(projects::get_user_repo),
+        )
         .route(
             "/api/v1/projects/{id}/events",
             get(sessions::pull).post(sessions::push),
+        )
+        .route(
+            "/api/v1/projects/{username}/{slug}/events",
+            get(sessions::pull_user_repo).post(sessions::push_user_repo),
         )
         .route(
             "/api/v1/projects/{id}/git/bundle",
@@ -62,6 +78,18 @@ pub fn create_router(hub: HubState) -> Router {
         .route("/git/{id}/info/refs", get(git_http::info_refs))
         .route("/git/{id}/git-upload-pack", post(git_http::upload_pack))
         .route("/git/{id}/git-receive-pack", post(git_http::receive_pack))
+        .route(
+            "/git/{username}/{repo}/info/refs",
+            get(git_http::info_refs_user_repo),
+        )
+        .route(
+            "/git/{username}/{repo}/git-upload-pack",
+            post(git_http::upload_pack_user_repo),
+        )
+        .route(
+            "/git/{username}/{repo}/git-receive-pack",
+            post(git_http::receive_pack_user_repo),
+        )
         .with_state(hub);
 
     Router::new()

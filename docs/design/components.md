@@ -160,6 +160,37 @@ High-density component behavior:
 - Equal-height dashboard rows use `h-full` plus internal scrolling so the band stays aligned.
 - Empty states preserve enough height that surrounding grids do not collapse abruptly.
 
+### Settings page pattern (View vs Edit mode)
+
+System configuration and operational settings pages must use the canonical two-mode pattern (View/Display mode vs Edit mode) to prevent accidental production misconfiguration, eliminate toggle jitter, and keep navigation scannable.
+
+Canonical reference implementations:
+- Component primitives: `admin/src/components/settings/SettingsSectionNav.tsx`, `SettingsToggleRow.tsx`, `SettingsSaveBar.tsx`.
+- Page implementation: `admin/src/pages/settings.tsx`.
+
+#### 1. Dual-mode interaction structure
+- **Default Display mode (View mode)**:
+  - Renders current active production settings using compact summary cards with read-only badges, status indicators, or tabular values.
+  - Switches/inputs are not directly editable in this mode to eliminate accidental clicks or silent dirty states.
+  - Section header contains a single secondary action button (e.g. `Edit Settings` with pencil icon) aligned to the right.
+- **Draft Edit mode**:
+  - Triggered by clicking `Edit Settings`. Clones current settings into an isolated draft state (`draftConfig` / `draftSettings`).
+  - Swaps read-only indicators for active form inputs, numerical controls, and `SettingsToggleRow` switches.
+  - The section header button flips to `Cancel Edit`.
+  - Mounts a floating/pinned bottom action bar (`SettingsSaveBar`) with `Cancel / Reset` and a primary `Save Changes` button (with loading spinner and status feedback).
+- **Commit & Exit**:
+  - Saving commits the draft to the backend API, updates active state, and automatically exits back to Display mode.
+  - Cancelling discards `draftConfig` immediately and restores Display mode without layout shifts.
+
+#### 2. Information architecture & section navigation
+- Use `SettingsSectionNav` as a horizontal or vertical pill tab switcher under `PageHeader`.
+- Nav items must include a clear domain icon, concise title, and optional badge count.
+- Switching sections while in Edit mode must prompt or cleanly reset draft state (`setIsEditing(false)`) to prevent cross-section draft pollution.
+- Place settings where operators expect them:
+  - **Global / System policies**: Settings page (`admin/src/pages/settings.tsx`).
+  - **User identity & roles**: Users page / detail dialog (`admin/src/pages/users.tsx`).
+  - **Client-specific custom fields**: Kept out of gateway core (retained in upstream business layer).
+
 ### Overlay accessibility
 
 Shared `Dialog` / `AlertDialog` / `Sheet` must:

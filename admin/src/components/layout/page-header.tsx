@@ -1,7 +1,7 @@
 import { cn } from "@/lib/utils"
 
 interface PageHeaderProps {
-    title?: string
+    title?: React.ReactNode
     action?: React.ReactNode
     className?: string
 }
@@ -10,9 +10,9 @@ export function PageHeader({ title, action, className }: PageHeaderProps) {
     return (
         <div className={cn("mx-auto mb-6 flex w-full max-w-[1400px] items-center justify-between gap-3", className)}>
             {title ? (
-                <h1 className="min-w-0 break-words text-page-title tracking-tight text-foreground">
+                <div className="min-w-0 break-words text-page-title tracking-tight text-foreground flex items-center gap-2.5">
                     {title}
-                </h1>
+                </div>
             ) : (
                 <div className="min-w-0" />
             )}

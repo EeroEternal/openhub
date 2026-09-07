@@ -1,8 +1,8 @@
 import { useState, type FormEvent } from "react"
-import { Link, Navigate, useNavigate } from "react-router-dom"
+import { Navigate, useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
+import { AuthCardLayout } from "@/components/layout/auth-card-layout"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { api, getToken, setToken } from "@/lib/api"
@@ -35,46 +35,43 @@ export default function LoginPage() {
   }
 
   return (
-      <Card className="w-full max-w-sm p-6">
-        <h1 className="mb-6 text-page-title text-foreground">{t("auth.login")}</h1>
-        <form className="space-y-4" autoComplete="off" onSubmit={onSubmit}>
-          <div className="space-y-2">
-            <Label htmlFor="email">{t("auth.email")}</Label>
-            <Input
-              id="email"
-              type="text"
-              inputMode="email"
-              autoComplete="off"
-              data-1p-ignore
-              data-lpignore="true"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="password">{t("auth.password")}</Label>
-            <Input
-              id="password"
-              type="password"
-              autoComplete="off"
-              data-1p-ignore
-              data-lpignore="true"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
-          </div>
-          <Button type="submit" className="w-full" disabled={pending}>
-            {t("auth.login")}
-          </Button>
-        </form>
-        <p className="mt-4 text-body-md text-muted-foreground">
-          {t("auth.noAccount")}{" "}
-          <Link to="/register" className="text-foreground underline">
-            {t("auth.register")}
-          </Link>
-        </p>
-      </Card>
+    <AuthCardLayout
+      activeTab="login"
+      title={t("auth.workspaceLoginTitle")}
+      subtitle={t("auth.workspaceLoginDesc")}
+    >
+      <form className="space-y-4" onSubmit={onSubmit}>
+        <div className="space-y-2">
+          <Label htmlFor="email">{t("auth.email")}</Label>
+          <Input
+            id="email"
+            name="email"
+            type="email"
+            inputMode="email"
+            autoComplete="username"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@company.com"
+            required
+            autoFocus
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="password">{t("auth.password")}</Label>
+          <Input
+            id="password"
+            name="password"
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
+        </div>
+        <Button type="submit" className="w-full" disabled={pending}>
+          {pending ? "..." : t("auth.login")}
+        </Button>
+      </form>
+    </AuthCardLayout>
   )
 }

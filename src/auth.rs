@@ -10,10 +10,22 @@ use crate::server::HubState;
 use crate::store;
 
 #[derive(Debug, Deserialize)]
+pub struct SendCodeRequest {
+    pub email: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct VerifyCodeRequest {
+    pub email: String,
+    pub code: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct RegisterRequest {
     pub email: String,
-    #[serde(default)]
-    pub password: Option<String>,
+    pub code: Option<String>,
+    pub username: Option<String>,
+    pub password: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -34,38 +46,148 @@ pub struct ChangePasswordRequest {
     pub new_password: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct CreatePatRequest {
+    pub name: String,
+    pub expires_in_days: Option<i64>,
+}
+
+/// Sends a 6-digit verification code to the given email address.
+pub async fn send_code(
+    State(hub): State<HubState>,
+    Json(body): Json<SendCodeRequest>,
+) -> Result<Json<Value>> {
+    let email = normalize_email(&body.email)?;
+    if let Some(user) = store::find_user_by_email(&hub.db, &email).await?
+        && user.email_verified_at.is_some()
+        && user.password_hash.is_some()
+    {
+        return Err(Error::InvalidRequest("email already registered".into()));
+    }
+
+    let user = match store::find_user_by_email(&hub.db, &email).await? {
+        Some(u) => u,
+        None => store::insert_user(&hub.db, &email).await?,
+    };
+
+    // Generate 6-digit code
+    let code: u32 = rand::random::<u32>() % 900_000 + 100_000;
+    let code_str = code.to_string();
+
+    // Store in auth_tokens with 10-minute expiry
+    store::insert_token_minutes(&hub.db, &user.id, "email_code", &hash_token(&code_str), 10)
+        .await?;
+
+    // Send code via configured mailer
+    hub.mail.send_verification_code(&email, &code_str).await?;
+
+    Ok(Json(json!({ "ok": true })))
+}
+
+/// Validates that the verification code entered for the email is valid before advancing.
+pub async fn verify_code(
+    State(hub): State<HubState>,
+    Json(body): Json<VerifyCodeRequest>,
+) -> Result<Json<Value>> {
+    let email = normalize_email(&body.email)?;
+    let user = store::find_user_by_email(&hub.db, &email)
+        .await?
+        .ok_or_else(|| Error::InvalidRequest("invalid or expired verification code".into()))?;
+
+    if hub.mail.skips_email() {
+        return Ok(Json(json!({ "ok": true })));
+    }
+
+    let code = body.code.trim();
+    if code.is_empty() {
+        return Err(Error::InvalidRequest("verification code required".into()));
+    }
+
+    // Check code in db
+    let row = sqlx::query(
+        "SELECT id, user_id, expires_at FROM auth_tokens WHERE purpose = ? AND token_hash = ?",
+    )
+    .bind("email_code")
+    .bind(hash_token(code))
+    .fetch_optional(&hub.db)
+    .await?;
+
+    let Some(row) = row else {
+        return Err(Error::Unauthorized(
+            "invalid or expired verification code".into(),
+        ));
+    };
+
+    use sqlx::Row;
+    let user_id: String = row.get("user_id");
+    let expires_at: String = row.get("expires_at");
+    if user_id != user.id || expires_at < crate::store::now() {
+        return Err(Error::Unauthorized(
+            "invalid or expired verification code".into(),
+        ));
+    }
+
+    Ok(Json(json!({ "ok": true })))
+}
+
+/// Registers the user by validating the email verification code, updating username, and setting password.
 pub async fn register(
     State(hub): State<HubState>,
     Json(body): Json<RegisterRequest>,
 ) -> Result<Json<Value>> {
     let email = normalize_email(&body.email)?;
+    if body.password.len() < 8 {
+        return Err(Error::InvalidRequest(
+            "password must be at least 8 characters".into(),
+        ));
+    }
+
     let user = match store::find_user_by_email(&hub.db, &email).await? {
-        Some(user) if user.email_verified_at.is_some() => {
-            return Ok(Json(json!({ "ok": true })));
-        }
-        Some(user) => user,
+        Some(u) => u,
         None => store::insert_user(&hub.db, &email).await?,
     };
-    if hub.mail.skips_email() {
-        let password = body.password.unwrap_or_default();
-        if password.len() < 8 {
-            return Err(Error::InvalidRequest(
-                "password must be at least 8 characters".into(),
-            ));
-        }
-        let hash = hash_password(&password)?;
-        store::set_password_and_verify(&hub.db, &user.id, &hash).await?;
-        let session = issue_session(&hub, &user.id).await?;
-        return Ok(Json(json!({ "ok": true, "token": session })));
+
+    // If user already registered with password and verified
+    if user.email_verified_at.is_some() && user.password_hash.is_some() {
+        return Err(Error::InvalidRequest("email already registered".into()));
     }
-    let raw = random_token();
-    store::insert_token(&hub.db, &user.id, "verify", &hash_token(&raw), 24).await?;
-    let url = format!(
-        "{}/verify?token={raw}",
-        hub.public_origin.trim_end_matches('/')
-    );
-    hub.mail.send_verify_email(&email, &url).await?;
-    Ok(Json(json!({ "ok": true })))
+
+    if !hub.mail.skips_email() {
+        let code = body.code.as_deref().unwrap_or("").trim();
+        if code.is_empty() {
+            return Err(Error::InvalidRequest("verification code required".into()));
+        }
+
+        let user_id = store::take_token(&hub.db, "email_code", &hash_token(code))
+            .await?
+            .ok_or_else(|| Error::Unauthorized("invalid or expired verification code".into()))?;
+
+        if user_id != user.id {
+            return Err(Error::Unauthorized("verification code mismatch".into()));
+        }
+    }
+
+    // Validate and sanitize custom username if supplied
+    let chosen_username = if let Some(raw_u) = body.username.as_deref().map(str::trim) {
+        if !raw_u.is_empty() {
+            let sanitized = normalize_username(raw_u)?;
+            if let Some(existing) = store::find_user_by_username(&hub.db, &sanitized).await?
+                && existing.id != user.id
+            {
+                return Err(Error::InvalidRequest("username is already taken".into()));
+            }
+            sanitized
+        } else {
+            user.username
+        }
+    } else {
+        user.username
+    };
+
+    let hash = hash_password(&body.password)?;
+    store::set_user_credentials(&hub.db, &user.id, &chosen_username, &hash).await?;
+    let session = issue_session(&hub, &user.id).await?;
+    Ok(Json(json!({ "ok": true, "token": session })))
 }
 
 pub async fn set_password(
@@ -116,7 +238,9 @@ pub async fn logout(State(hub): State<HubState>, headers: HeaderMap) -> Result<J
 
 pub async fn me(State(hub): State<HubState>, headers: HeaderMap) -> Result<Json<Value>> {
     let user = user_from_headers(&hub, &headers).await?;
-    Ok(Json(json!({ "id": user.id, "email": user.email })))
+    Ok(Json(
+        json!({ "id": user.id, "email": user.email, "username": user.username }),
+    ))
 }
 
 pub async fn change_password(
@@ -141,6 +265,77 @@ pub async fn change_password(
     if let Some(raw) = bearer_from_headers(&headers) {
         store::delete_other_sessions(&hub.db, &user.id, &hash_token(&raw)).await?;
     }
+    Ok(Json(json!({ "ok": true })))
+}
+
+pub async fn list_pats(State(hub): State<HubState>, headers: HeaderMap) -> Result<Json<Value>> {
+    let user = user_from_headers(&hub, &headers).await?;
+    let pats = store::list_personal_access_tokens(&hub.db, &user.id).await?;
+    let list: Vec<Value> = pats
+        .into_iter()
+        .map(|p| {
+            json!({
+                "id": p.id,
+                "name": p.name,
+                "token_prefix": p.token_prefix,
+                "expires_at": p.expires_at,
+                "created_at": p.created_at,
+                "last_used_at": p.last_used_at,
+            })
+        })
+        .collect();
+    Ok(Json(json!({ "tokens": list })))
+}
+
+pub async fn create_pat(
+    State(hub): State<HubState>,
+    headers: HeaderMap,
+    Json(body): Json<CreatePatRequest>,
+) -> Result<Json<Value>> {
+    let name = body.name.trim();
+    if name.is_empty() {
+        return Err(Error::InvalidRequest("token name required".into()));
+    }
+    let user = user_from_headers(&hub, &headers).await?;
+
+    // Generate secure token with oh_ prefix
+    let raw_secret = random_token();
+    let token = format!("oh_{raw_secret}");
+    let token_hash = hash_token(&token);
+    let prefix = format!("oh_{}...", &raw_secret[..6]);
+
+    let expires_at = body
+        .expires_in_days
+        .filter(|d| *d > 0)
+        .map(|days| (chrono::Utc::now() + chrono::Duration::days(days)).to_rfc3339());
+
+    let pat = store::insert_personal_access_token(
+        &hub.db,
+        &user.id,
+        name,
+        &token_hash,
+        &prefix,
+        expires_at.as_deref(),
+    )
+    .await?;
+
+    Ok(Json(json!({
+        "id": pat.id,
+        "name": pat.name,
+        "token": token,
+        "token_prefix": pat.token_prefix,
+        "expires_at": pat.expires_at,
+        "created_at": pat.created_at,
+    })))
+}
+
+pub async fn delete_pat(
+    State(hub): State<HubState>,
+    headers: HeaderMap,
+    axum::extract::Path(token_id): axum::extract::Path<String>,
+) -> Result<Json<Value>> {
+    let user = user_from_headers(&hub, &headers).await?;
+    store::delete_personal_access_token(&hub.db, &user.id, &token_id).await?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -180,6 +375,25 @@ fn normalize_email(email: &str) -> Result<String> {
         return Err(Error::InvalidRequest("invalid email".into()));
     }
     Ok(email)
+}
+
+fn normalize_username(username: &str) -> Result<String> {
+    let username = username.trim().to_lowercase();
+    if username.len() < 2 || username.len() > 39 {
+        return Err(Error::InvalidRequest(
+            "username must be between 2 and 39 characters".into(),
+        ));
+    }
+    if !username
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(Error::InvalidRequest(
+            "username may only contain alphanumeric characters, single hyphens or underscores"
+                .into(),
+        ));
+    }
+    Ok(username)
 }
 
 fn random_token() -> String {
