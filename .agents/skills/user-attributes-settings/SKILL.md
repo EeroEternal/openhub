@@ -23,7 +23,8 @@ Source pattern: xrouter Users page (list+detail) + Settings section nav. Do not 
 | --- | --- | --- |
 | Per-user identity | Users page (master–detail) + create/edit dialog | `username`, `email`, `role_id`, `status`, org/project membership |
 | Per-user operations | Users detail cards, not Settings | quota, granted instances, that user's API keys |
-| Self-service secret | User-menu dialog | change **own** password |
+| Self-service secret | User-menu **dialog** | change **own** password |
+| Account chrome | Top-right user menu | avatar; Settings → `/settings`; logout |
 | System-wide user policy | **Settings page only** | `registration_enabled`, identity providers / SSO, default JIT role |
 | Customer business model | **Never in the gateway** | department, job title, cost center, approval chain, customer value |
 
@@ -61,7 +62,7 @@ When adding or extending Settings:
 3. Section cards use **view vs edit**: load current values; Edit copies into a draft; Cancel restores; a sticky save bar commits. Do not autosave each toggle unless the product already does for that section.
 4. Hide admin-only sections from non-admins (do not render a disabled tease).
 5. Secret config (IdP client secret, bind password, service token) follows the same class as API keys: masked on read, single-reveal on create/rotate. See skill `api-key-lifecycle-security`.
-6. Registration / SSO belong in Settings → general or an Identity section, not on Users.
+6. Registration / SSO belong in Settings → general or an Identity section, not on Users. Verification email is `Mailer` (Cloudflare-first); see [`docs/architecture.md`](../../../docs/architecture.md) § Outbound mail. Do not speak SMTP from Admin or Settings.
 
 ## Password and provisioning
 
@@ -74,7 +75,7 @@ When adding or extending Settings:
 ## Procedure (adding a field or settings knob)
 
 1. Classify with the placement table. If "customer business", **stop** and keep it in the customer system.
-2. If global policy: add a Settings section or a field in an existing section. Wire resource functions under `admin/src/lib/resources/`. Do not add sidebar/user-menu entry.
+2. If global policy: add a Settings section or a field in an existing section. Wire resource functions under `admin/src/lib/resources/`. Do not add a new sidebar item or put the form in the user-menu. The user-menu Settings row only **navigates** to `/settings`.
 3. If per-user identity: extend the Users DTO + create/edit dialog + detail card. Do not put it on Settings.
 4. If per-user operations: add a detail card on Users (quota, grants), not a column dump of every related entity.
 5. i18n: `t()` + both `zh.ts` and `en.ts`. No mixed-language labels.

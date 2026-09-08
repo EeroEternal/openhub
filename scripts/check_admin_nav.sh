@@ -36,7 +36,7 @@ done <<< "$hrefs"
 while IFS= read -r path; do
   [[ -z "$path" || "$path" == "*" ]] && continue
   [[ "$path" == *:* ]] && continue
-  case "$path" in login|register|verify|settings) continue ;; esac
+  case "$path" in login|register|verify|settings|help) continue ;; esac
   if ! grep -qx "/$path" <<<"$hrefs"; then
     echo "✗ <Route path=\"$path\"> has no nav href /$path"
     fail=1

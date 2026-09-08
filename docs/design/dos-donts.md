@@ -21,6 +21,8 @@ Named **generated-design** failures (call them by name in reviews):
 | **Chrome action** | Business Save/Create in the top bar |
 | **Type zoo** | 24px/30px headlines or extra weights beyond 400/500/600 |
 | **Tab as nav** | Tabs used as hierarchy instead of sibling content |
+| **Raw agent paths** | Branding panel dumps `/llms.txt` or `/docs/guide.md` as visible copy |
+| **JS-only docs** | Agent guide exists only as a React route; `curl` of the `.md` 404s |
 
 - Do use semantic tokens for all core surfaces, text, and states.
 - Do keep page titles and primary content aligned to the same left edge.

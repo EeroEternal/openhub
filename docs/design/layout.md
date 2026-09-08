@@ -21,9 +21,24 @@ Spacing scale (4px base): **4, 8, 12, 16, 24, 32, 40, 48**. Prefer this ladder; 
 
 12-column grid; gutters 16px or 24px.
 
-**Top bar does not carry business actions.** Left: sidebar trigger. Right: theme, language, org/project, notifications, user. Page primary actions stay in `PageHeader`.
+**Top bar does not carry business actions.** Left: sidebar trigger. Right: theme, language, org/project, notifications, **user menu**. Page primary actions stay in `PageHeader`.
 
 Sidebar entries: `admin/src/lib/nav.ts` (or product equivalent). Do not invent a second menu.
+
+### User menu (top-right, after login)
+
+Canonical: `admin/src/components/layout/user-menu.tsx`. Trigger is a 32px avatar (`UserCircle`), icon-only with `aria-label`. Not a business button.
+
+Dropdown (`align="end"`, `w-56`):
+
+1. **Identity header** — display name (and optional role). Not a form.
+2. **Settings** — `navigate('/settings')`. This is a shortcut to the Settings **page**. Do not inline Settings forms, toggles, or SSO/registration knobs in the menu.
+3. **Change password** — Dialog over the current page (self-service secret). Required when the user has a local password. Not a Settings section.
+4. **Logout** — after a separator; clear session and `navigate('/login')`. Destructive text.
+
+Allowlisted extras (product): Help — navigates to public `/help` (see [`agent-docs.md`](agent-docs.md)). Forbidden: global config, identity-provider setup, org/project switch (those have their own top-bar controls), create/save actions.
+
+Settings may also stay in the sidebar; both entries open the same page.
 
 ## Page types
 
@@ -84,3 +99,23 @@ Rules:
 - Validation errors may appear below actions, but should not push critical controls out of view without a reserved error strip when errors are common on that step.
 
 Canonical references: `ApiKeyUsageExamples` (fixed-height tab switching for curl commands), `ApiKeyCreateWizard` route meta slot (`SelectedRouteMeta` with `min-h`), `RouteCreateWizard` strategy extras `min-h` region.
+
+## Auth split (outside shell)
+
+Login and register are not operational pages. They do **not** use sidebar + top bar, and they are not a seventh chrome. Canonical: `admin/src/components/layout/auth-card-layout.tsx` with `admin/src/pages/login.tsx` and `register.tsx`.
+
+Structure (same split as the xrouter login page):
+
+- Full-viewport row: `min-h-screen flex`. Language switcher is top-right, not in a product top bar.
+- **Left** (`hidden lg:flex lg:w-1/2`, muted surface): product mark + name, one headline (`text-3xl font-semibold`, the only size exception on this page), one supporting sentence (`text-body-md`), optional three stats (`text-metric` + `text-meta-sm`). Copy is **product-specific** — replace `auth.productName`, `auth.brandingTitle`, `auth.brandingSubtitle`, `auth.brandingDescription`, and `auth.stat*` when adopting the kit. Do not ship another product's name. Do not use `text-5xl` / `font-bold`.
+- **Right**: one form card. Form title uses `text-page-title` only; no casual subtitle. Shared `Input` / `Label` / `Button` — do **not** restyle to `h-12`, `rounded-xl`, `tracking-widest`, `text-base`, or extra weights (Type zoo).
+- **Login**: one step. Email + password (show/hide). One primary submit.
+- **Register**: three steps in the **same** card, never one tiled form. Reserve `min-h` so step changes do not jump.
+  1. Email → primary **Send code**
+  2. Code only. Shown email + change-email text button. Resend is a text button, not a second primary. Primary **Continue**.
+  3. Password + confirm. Primary **Create account**.
+- Public routes `/login` and `/register` must not appear in `nav.ts`.
+- Form-card footer may include **Agent guide** on the same line as Register / Sign in (`font-semibold text-primary`). Link to `/help`. Do not print `/llms.txt` or `.md` paths on the left branding panel. Full pattern: [`agent-docs.md`](agent-docs.md).
+- **Send code** is `POST /api/v1/auth/send-code` → product handler → `Mailer::send_verification_code`. Outbound mail is Cloudflare-first; see [`docs/architecture.md`](../architecture.md) § Outbound mail. Do not speak SMTP from the UI or add a parallel mail client.
+
+Do not put login inside `DashboardLayout`. Do not build a two-card marketing grid. Do not dump email + verification code + password on one screen (**Tiled create**). Do not use username-only login — identity is email.

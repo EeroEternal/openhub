@@ -58,6 +58,8 @@ Always load this file (Overview + Hard rules + PR checklist below). Then open **
 | Colors / dark mode / status | [`design/colors.md`](design/colors.md) |
 | Titles, density, wrapping | [`design/typography.md`](design/typography.md), [`design/layout.md`](design/layout.md) |
 | Shell, cards, dashboard rows, filters | [`design/layout.md`](design/layout.md) |
+| Login / register / auth branding | [`design/layout.md`](design/layout.md) → Auth split |
+| Agent-facing docs / `/help` / `llms.txt` | [`design/agent-docs.md`](design/agent-docs.md) |
 | Wizard / select height jump | [`design/layout.md`](design/layout.md) → Layout stability |
 | List / master–detail / detail dialog / wizard | [`design/components.md`](design/components.md) (+ layout stability when needed) |
 | Shadows, radius | [`design/surfaces.md`](design/surfaces.md) |
