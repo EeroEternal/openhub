@@ -5,7 +5,7 @@ use axum::{
 use gitcell::server::AppState as GitcellState;
 use http_body_util::BodyExt;
 use openhub::mail::Mailer;
-use openhub::server::{HubState, create_router};
+use openhub::server::{HubState, create_router, create_router_with_static};
 use openhub::store;
 use tower::ServiceExt;
 
@@ -293,4 +293,44 @@ async fn test_send_code_and_register() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(slug_res2["available"], false);
+}
+
+#[tokio::test]
+async fn serves_static_files_and_spa_fallback() {
+    let (hub, _tmp) = test_hub().await;
+    let web = tempfile::tempdir().unwrap();
+    std::fs::write(web.path().join("llms.txt"), "# OpenHub\n").unwrap();
+    std::fs::write(
+        web.path().join("index.html"),
+        "<!doctype html><title>OpenHub</title>",
+    )
+    .unwrap();
+    let app = create_router_with_static(hub, Some(web.path().to_path_buf()));
+
+    let (status, body) = raw_request(app.clone(), "/llms.txt").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(String::from_utf8(body).unwrap(), "# OpenHub\n");
+
+    let (status, body) = raw_request(app.clone(), "/help").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(String::from_utf8_lossy(&body).contains("<title>OpenHub</title>"));
+
+    let (status, _) = raw_request(app, "/api/v1/does-not-exist").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+async fn raw_request(app: axum::Router, uri: &str) -> (StatusCode, Vec<u8>) {
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(uri)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    (status, bytes.to_vec())
 }

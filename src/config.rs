@@ -12,6 +12,7 @@ pub struct Config {
     pub cells_storage_dir: PathBuf,
     pub cells_lease_ttl_secs: u64,
     pub database_url: PathBuf,
+    pub static_dir: Option<PathBuf>,
 }
 
 impl Default for Config {
@@ -40,6 +41,11 @@ impl Default for Config {
             database_url: std::env::var("OPENHUB_DATABASE_PATH")
                 .map(PathBuf::from)
                 .unwrap_or_else(|_| PathBuf::from("./data/openhub.db")),
+            static_dir: std::env::var("OPENHUB_STATIC_DIR")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .map(PathBuf::from),
         }
     }
 }

@@ -23,13 +23,21 @@ async fn main() -> Result<()> {
     )?;
     let db = store::connect(&config.database_url).await?;
     store::migrate(&db).await?;
+    let static_dir = config.static_dir.clone().filter(|p| p.is_dir());
+    if let Some(ref dir) = config.static_dir {
+        if static_dir.is_none() {
+            tracing::warn!(path = %dir.display(), "OPENHUB_STATIC_DIR is set but not a directory");
+        } else {
+            info!(path = %dir.display(), "serving Admin UI");
+        }
+    }
     let hub = HubState {
         gitcell,
         db,
         mail: Mailer::from_env(),
         public_origin: config.public_origin.clone(),
     };
-    let app = server::create_router(hub);
+    let app = server::create_router_with_static(hub, static_dir);
 
     let addr = format!("{}:{}", config.host, config.port);
     info!(

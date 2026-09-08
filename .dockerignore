@@ -1,7 +1,12 @@
 .git
-target
-admin
-docs
-.agents
 .github
-*.md
+.agents
+target
+data
+admin/node_modules
+admin/dist
+admin/.vite
+docs
+*.orig
+.DS_Store
+.env

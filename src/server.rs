@@ -1,9 +1,11 @@
 use std::future::Future;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use axum::body::Body;
-use axum::http::Request;
+use axum::extract::State;
+use axum::http::{Request, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use axum::{
     Json, Router,
@@ -34,6 +36,10 @@ pub struct HubState {
 }
 
 pub fn create_router(hub: HubState) -> Router {
+    create_router_with_static(hub, None)
+}
+
+pub fn create_router_with_static(hub: HubState, static_dir: Option<PathBuf>) -> Router {
     let gitcell_state = hub.gitcell.clone();
     let protected_gitcell = api_router()
         .with_state(gitcell_state)
@@ -92,13 +98,57 @@ pub fn create_router(hub: HubState) -> Router {
         )
         .with_state(hub);
 
-    Router::new()
+    let mut app = Router::new()
         .route("/health", get(health_check))
         .route("/api/v1/ping", get(ping))
         .merge(api)
-        .merge(protected_gitcell)
-        .layer(TraceLayer::new_for_http())
+        .merge(protected_gitcell);
+    if let Some(dir) = static_dir {
+        app = app.fallback_service(Router::new().fallback(serve_spa).with_state(dir));
+    }
+    app.layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
+}
+
+async fn serve_spa(State(dir): State<PathBuf>, uri: Uri) -> Response {
+    let path = uri.path();
+    if path.starts_with("/api") || path.starts_with("/git") {
+        return Error::NotFound("not found".into()).into_response();
+    }
+    let rel = path.trim_start_matches('/');
+    let candidate = if rel.is_empty() {
+        dir.join("index.html")
+    } else {
+        dir.join(rel)
+    };
+    let root = dir.canonicalize().unwrap_or_else(|_| dir.clone());
+    let file = match candidate.canonicalize() {
+        Ok(p) if p.starts_with(&root) && p.is_file() => p,
+        _ => dir.join("index.html"),
+    };
+    match tokio::fs::read(&file).await {
+        Ok(bytes) => {
+            let ctype = static_content_type(&file);
+            ([(header::CONTENT_TYPE, ctype)], bytes).into_response()
+        }
+        Err(_) => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+fn static_content_type(path: &std::path::Path) -> &'static str {
+    match path.extension().and_then(|e| e.to_str()) {
+        Some("html") => "text/html; charset=utf-8",
+        Some("js") => "text/javascript; charset=utf-8",
+        Some("css") => "text/css; charset=utf-8",
+        Some("txt") => "text/plain; charset=utf-8",
+        Some("md") => "text/markdown; charset=utf-8",
+        Some("svg") => "image/svg+xml",
+        Some("json") => "application/json",
+        Some("woff2") => "font/woff2",
+        Some("png") => "image/png",
+        Some("ico") => "image/x-icon",
+        _ => "application/octet-stream",
+    }
 }
 
 async fn health_check() -> Json<Value> {

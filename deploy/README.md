@@ -1,53 +1,48 @@
 # Deploy OpenHub (GCP + Cloudflare)
 
-Public name: **openhub.run**. Origin: one GCP VM running this binary (or the Docker image). Cloudflare is DNS + TLS proxy only — not Workers, not Pages.
+Public name: **openhub.run**. Origin: one GCP VM. Cloudflare is DNS + TLS proxy only — not Workers, not Pages.
 
-## 1. GCP VM
+Push to `main` runs CI, then [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) builds a Docker image (API + Admin UI), pushes it to GHCR, SSH into the VM, and restarts the `openhub` container. `/var/lib/openhub` is a volume and is not replaced.
 
-1. Create a VM (Ubuntu LTS, e2-small is enough to start) with a **static external IP**.
-2. VPC firewall: allow **tcp:80** and **tcp:443** from `0.0.0.0/0`. Do not expose 8080 publicly; Caddy/nginx on the VM listens 443 and reverse-proxies to `127.0.0.1:8080`.
-3. Install Docker (or build with rustup). Git is only needed later if this host also runs `gitcell`.
+## 1. GCP VM (once)
 
-## 2. Run the origin
+1. Ubuntu LTS VM with a **static external IP**. Docker installed.
+2. VPC firewall: **tcp:80** and **tcp:443** from `0.0.0.0/0`. Do not expose 8080.
+3. Caddy (or nginx) on 443 with a Cloudflare Origin Certificate. Use [`Caddyfile`](Caddyfile): **reverse_proxy everything** to `127.0.0.1:8080`. Do not `file_server` an old `admin/dist` — that is why the UI went stale.
+4. Create `/var/lib/openhub` for SQLite, git repos, and cellz.
+5. Install the GitHub deploy public key as `authorized_keys` for `DEPLOY_USER` (docker must run without a TTY sudo prompt; put the user in the `docker` group).
 
-From this repo on the VM:
+## 2. GitHub secrets (once)
 
-```bash
-docker build -t openhub:local -f deploy/Dockerfile .
-docker run -d --name openhub --restart unless-stopped \
-  -p 127.0.0.1:8080:8080 \
-  -v /var/lib/openhub:/data \
-  -e OPENHUB_PUBLIC_ORIGIN=https://openhub.run \
-  openhub:local
-```
+Repo → Settings → Secrets and variables → Actions:
 
-Health: `curl -s http://127.0.0.1:8080/health`.
+| Secret | Value |
+| --- | --- |
+| `DEPLOY_HOST` | VM public IP (or DNS that is not orange-clouded for SSH) |
+| `DEPLOY_USER` | SSH user that can run `docker` |
+| `DEPLOY_SSH_KEY` | Private key matching the VM `authorized_keys` entry |
 
-Put Caddy (or nginx) in front with a **Cloudflare Origin Certificate** (Cloudflare dashboard → SSL → Origin Server). Example Caddyfile:
+The workflow logs into GHCR with `GITHUB_TOKEN` (no extra registry secret). First image: `ghcr.io/<owner>/openhub`.
 
-```caddy
-openhub.run, www.openhub.run {
-    reverse_proxy 127.0.0.1:8080
-    tls /etc/caddy/origin.pem /etc/caddy/origin.key
-}
-```
+Manual run: Actions → **Deploy production** → Run workflow.
 
 ## 3. Cloudflare DNS
 
-In the zone **openhub.run**:
-
 | Type | Name | Content | Proxy |
 | --- | --- | --- | --- |
-| A | `@` | GCP static IP | Proxied (orange cloud) |
+| A | `@` | GCP static IP | Proxied |
 | A | `www` | GCP static IP | Proxied |
 
-SSL/TLS mode: **Full (strict)**.
+SSH to the VM must use the **grey-cloud** IP (or a separate `ssh.openhub.run` record that is DNS-only). SSL/TLS mode: **Full (strict)**.
 
-Optional: Cloudflare Access on `openhub.run` so the origin stays without app-level auth for now.
-
-## 4. Check
+## 4. Check after deploy
 
 ```bash
 curl -sS https://openhub.run/health
 # {"status":"ok","service":"openhub"}
+
+curl -sS https://openhub.run/llms.txt | head
+# # OpenHub
 ```
+
+The Admin UI (`/login`, `/help`) is the same origin as `/api`. Local `cargo run` still needs `cd admin && npm run dev` unless `OPENHUB_STATIC_DIR` points at a built `admin/dist`.

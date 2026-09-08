@@ -1,0 +1,9 @@
+# Canonical Caddy config for openhub.run.
+# Proxy everything to the container. The binary serves /api, /git, /health,
+# and the Admin UI (including /llms.txt and /docs/*.md).
+# Do not add a file_server for admin/dist — that is how the UI went stale.
+
+openhub.run, www.openhub.run {
+    reverse_proxy 127.0.0.1:8080
+    tls /etc/caddy/origin.pem /etc/caddy/origin.key
+}
