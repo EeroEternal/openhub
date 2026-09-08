@@ -33,7 +33,7 @@ async fn run() -> Result<()> {
     let mut args = std::env::args().skip(1).collect::<Vec<_>>();
     if args.is_empty() {
         eprintln!(
-            "usage:\n  oh login <email> <password> [--url https://openhub.run]\n  oh login --token <token> [--url https://openhub.run]\n  oh login <token>\n  oh project create <name>\n  oh clone <project-id> [dir] [--blobless]\n  oh sync\n  oh merge <branch> [--into target_branch]"
+            "usage:\n  oh login <email> <password> [--url https://openhub.run]\n  oh login --token <token> [--url https://openhub.run]\n  oh login <token>\n  oh project create <name>\n  oh clone <project-id> [dir] [--blobless]\n  oh sync\n  oh merge [branch] [--into target_branch]"
         );
         return Ok(());
     }
@@ -41,7 +41,7 @@ async fn run() -> Result<()> {
     match cmd.as_str() {
         "help" | "--help" | "-h" => {
             eprintln!(
-                "usage:\n  oh login <email> <password> [--url https://openhub.run]\n  oh login --token <token> [--url https://openhub.run]\n  oh login <token>\n  oh project create <name>\n  oh clone <project-id> [dir] [--blobless]\n  oh sync\n  oh merge <branch> [--into target_branch]"
+                "usage:\n  oh login <email> <password> [--url https://openhub.run]\n  oh login --token <token> [--url https://openhub.run]\n  oh login <token>\n  oh project create <name>\n  oh clone <project-id> [dir] [--blobless]\n  oh sync\n  oh merge [branch] [--into target_branch]"
             );
             Ok(())
         }
@@ -407,12 +407,34 @@ async fn merge(args: Vec<String>) -> Result<()> {
         i += 1;
     }
 
-    let source_branch =
-        branch.ok_or_else(|| anyhow::anyhow!("usage: oh merge <branch> [--into target_branch]"))?;
     let dir = std::env::current_dir()?;
     if !dir.join(".git").exists() {
         bail!("not a git repository (run inside an OpenHub project)");
     }
+
+    // Determine current branch
+    let current_branch = Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .current_dir(&dir)
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| "main".to_string());
+
+    let (source_branch, target_branch) = match branch {
+        Some(b) => (b, into),
+        None => {
+            // When no branch specified:
+            if current_branch != "main" {
+                // If on a feature branch, merge current branch into main
+                (current_branch.clone(), "main".to_string())
+            } else {
+                // Already on main, fetch and merge latest remote main
+                ("origin/main".to_string(), "main".to_string())
+            }
+        }
+    };
 
     let meta = load_repo_meta(&dir)?;
     let creds = load_creds()?;
@@ -442,29 +464,32 @@ async fn merge(args: Vec<String>) -> Result<()> {
             .status();
     }
 
-    // 2. Determine current branch
-    let current_branch = Command::new("git")
-        .args(["rev-parse", "--abbrev-ref", "HEAD"])
-        .current_dir(&dir)
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_string())
-        .unwrap_or_else(|| "main".to_string());
+    println!(
+        "merging '{source_branch}' into '{target_branch}' (current branch: {current_branch})..."
+    );
 
-    println!("merging '{source_branch}' into '{into}' (current branch: {current_branch})...");
-
-    // 3. Switch to target branch if not already on it
-    if current_branch != into {
+    // 2. Switch to target branch if not already on it
+    if current_branch != target_branch {
         let checkout_status = Command::new("git")
-            .args(["checkout", &into])
+            .args(["checkout", &target_branch])
             .current_dir(&dir)
             .status()
-            .context(format!("switching to target branch {into}"))?;
+            .context(format!("switching to target branch {target_branch}"))?;
 
         if !checkout_status.success() {
-            bail!("failed to checkout target branch '{into}'");
+            bail!("failed to checkout target branch '{target_branch}'");
         }
+    }
+
+    // 3. If source is remote (e.g. origin/main), fetch first
+    if source_branch.starts_with("origin/") {
+        let git_url = format!("{}/git/{}", creds.origin, meta.project_id);
+        let auth_header = format!("http.extraHeader=Authorization: Bearer {}", creds.token);
+        println!("fetching latest updates from remote...");
+        let _ = Command::new("git")
+            .args(["-c", &auth_header, "fetch", &git_url])
+            .current_dir(&dir)
+            .status();
     }
 
     // 4. Perform git merge
@@ -474,7 +499,7 @@ async fn merge(args: Vec<String>) -> Result<()> {
             &source_branch,
             "--no-edit",
             "-m",
-            &format!("merge: integrate {source_branch} into {into}"),
+            &format!("merge: integrate {source_branch} into {target_branch}"),
         ])
         .current_dir(&dir)
         .status()
@@ -486,13 +511,13 @@ async fn merge(args: Vec<String>) -> Result<()> {
         );
     }
 
-    println!("successfully merged '{source_branch}' into '{into}'.");
+    println!("successfully merged '{source_branch}' into '{target_branch}'.");
 
     // 5. Push remote and sync session events
     let git_url = format!("{}/git/{}", creds.origin, meta.project_id);
     let auth_header = format!("http.extraHeader=Authorization: Bearer {}", creds.token);
-    let refspec = format!("HEAD:refs/heads/{into}");
-    println!("pushing merged {into} to remote...");
+    let refspec = format!("HEAD:refs/heads/{target_branch}");
+    println!("pushing merged {target_branch} to remote...");
     let push_status = Command::new("git")
         .args(["-c", &auth_header, "push", &git_url, &refspec])
         .current_dir(&dir)
@@ -509,7 +534,7 @@ async fn merge(args: Vec<String>) -> Result<()> {
 
     println!(
         "merged and synced {} ({} -> {})",
-        meta.project_id, source_branch, into
+        meta.project_id, source_branch, target_branch
     );
     Ok(())
 }
@@ -576,7 +601,9 @@ async fn push_local_events(
             .context("push events")?;
 
         if !res.status().is_success() {
-            eprintln!("session push chunk: {}", res.status());
+            let status = res.status();
+            let err_text = res.text().await.unwrap_or_default();
+            eprintln!("session push chunk {status}: {err_text}");
         } else {
             let resp: Value = res.json().await.unwrap_or(Value::Null);
             total_accepted += resp["accepted"].as_u64().unwrap_or(0);
