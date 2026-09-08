@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react"
 import { Navigate, useNavigate } from "react-router-dom"
+import { Eye, EyeOff } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { AuthCardLayout } from "@/components/layout/auth-card-layout"
@@ -13,6 +14,7 @@ export default function LoginPage() {
   const navigate = useNavigate()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [showPassword, setShowPassword] = useState(false)
   const [pending, setPending] = useState(false)
 
   if (getToken()) return <Navigate to="/" replace />
@@ -23,7 +25,7 @@ export default function LoginPage() {
     try {
       const res = await api<{ token: string }>("/api/v1/auth/login", {
         method: "POST",
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: email.trim(), password }),
       })
       setToken(res.token)
       navigate("/", { replace: true })
@@ -35,11 +37,7 @@ export default function LoginPage() {
   }
 
   return (
-    <AuthCardLayout
-      activeTab="login"
-      title={t("auth.workspaceLoginTitle")}
-      subtitle={t("auth.workspaceLoginDesc")}
-    >
+    <AuthCardLayout activeTab="login" title={t("auth.loginTitle")}>
       <form className="space-y-4" onSubmit={onSubmit}>
         <div className="space-y-2">
           <Label htmlFor="email">{t("auth.email")}</Label>
@@ -51,25 +49,37 @@ export default function LoginPage() {
             autoComplete="username"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@company.com"
+            placeholder={t("auth.emailPlaceholder")}
             required
             autoFocus
           />
         </div>
         <div className="space-y-2">
           <Label htmlFor="password">{t("auth.password")}</Label>
-          <Input
-            id="password"
-            name="password"
-            type="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
+          <div className="relative">
+            <Input
+              id="password"
+              name="password"
+              type={showPassword ? "text" : "password"}
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder={t("auth.passwordPlaceholder")}
+              className="pr-10"
+              required
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((open) => !open)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground"
+              aria-label={showPassword ? t("auth.hidePassword") : t("auth.showPassword")}
+            >
+              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
         </div>
         <Button type="submit" className="w-full" disabled={pending}>
-          {pending ? "..." : t("auth.login")}
+          {pending ? t("common.loading") : t("auth.login")}
         </Button>
       </form>
     </AuthCardLayout>

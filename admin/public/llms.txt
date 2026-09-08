@@ -1,0 +1,25 @@
+# OpenHub
+
+OpenHub is a hosted account + project service at https://openhub.run.
+Each project stores a git working tree and an agent session log.
+v1 is owner-only. There are no pull requests, issues, or anonymous push.
+
+## Docs
+
+- Guide: https://openhub.run/docs/guide.md
+- Changelog: https://openhub.run/docs/changelog.md
+- Human HTML: https://openhub.run/help
+
+## Quick start
+
+```
+curl -fsSL https://openhub.run/install.sh | sh
+oh login <email> <password>
+oh project create my-app
+oh clone <project-id>
+oh sync
+```
+
+Auth is email + password (or a personal access token prefixed `oh_`).
+Git Smart HTTP lives at `/git/{username}/{slug}` or `/git/{project_id}`.
+Session events live at `/api/v1/projects/{id}/events`.

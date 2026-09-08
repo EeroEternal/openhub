@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react"
 import { Navigate, useNavigate, useSearchParams } from "react-router-dom"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
+import { AuthCardLayout } from "@/components/layout/auth-card-layout"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { api, getToken, setToken } from "@/lib/api"
@@ -45,37 +45,38 @@ export default function VerifyPage() {
   }
 
   return (
-      <Card className="w-full max-w-sm p-6">
-        <h1 className="mb-6 text-page-title text-foreground">{t("auth.verifyTitle")}</h1>
-        <form className="space-y-4" onSubmit={onSubmit}>
-          <div className="space-y-2">
-            <Label htmlFor="password">{t("auth.password")}</Label>
-            <Input
-              id="password"
-              type="password"
-              autoComplete="new-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              minLength={8}
-              required
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="confirm">{t("auth.confirmPassword")}</Label>
-            <Input
-              id="confirm"
-              type="password"
-              autoComplete="new-password"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              minLength={8}
-              required
-            />
-          </div>
-          <Button type="submit" className="w-full" disabled={pending}>
-            {t("auth.verifyTitle")}
-          </Button>
-        </form>
-      </Card>
+    <AuthCardLayout activeTab="login" title={t("auth.verifyTitle")} showSwitch={false}>
+      <form className="space-y-4" onSubmit={onSubmit}>
+        <div className="space-y-2">
+          <Label htmlFor="password">{t("auth.password")}</Label>
+          <Input
+            id="password"
+            type="password"
+            autoComplete="new-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder={t("auth.passwordPlaceholder")}
+            minLength={8}
+            required
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="confirm">{t("auth.confirmPassword")}</Label>
+          <Input
+            id="confirm"
+            type="password"
+            autoComplete="new-password"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            placeholder={t("auth.confirmPasswordPlaceholder")}
+            minLength={8}
+            required
+          />
+        </div>
+        <Button type="submit" className="w-full" disabled={pending}>
+          {pending ? t("common.loading") : t("auth.verifyTitle")}
+        </Button>
+      </form>
+    </AuthCardLayout>
   )
 }

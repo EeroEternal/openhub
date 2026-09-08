@@ -3,10 +3,25 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="OpenHub hosts git repositories and agent session logs. Sign in, or read the agent guide."
+    />
+    <link rel="alternate" type="text/markdown" href="/docs/guide.md" />
+    <link rel="alternate" type="text/plain" href="/llms.txt" />
     <title>OpenHub</title>
   </head>
   <body>
     <div id="root"></div>
+    <noscript>
+      <p>OpenHub</p>
+      <ul>
+        <li><a href="/docs/guide.md">Guide</a></li>
+        <li><a href="/docs/changelog.md">Changelog</a></li>
+        <li><a href="/llms.txt">llms.txt</a></li>
+        <li><a href="/login">Sign in</a></li>
+      </ul>
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

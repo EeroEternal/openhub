@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react"
-import { Link, useLocation, useNavigate } from "react-router-dom"
+import { useLocation, useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { Separator } from "@/components/ui/separator"
@@ -23,27 +23,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { api, setToken } from "@/lib/api"
-import { APP_TITLE } from "@/lib/nav"
 import { t, useI18n } from "@/lib/i18n"
-
-export function PublicHeader() {
-  useI18n()
-  return (
-    <header className="flex h-14 shrink-0 items-center border-b bg-background px-4">
-      <Link to="/login" className="text-sm font-semibold text-foreground">
-        {APP_TITLE}
-      </Link>
-      <div className="ml-auto flex h-10 items-center gap-2">
-        <Button variant="outline" asChild>
-          <Link to="/login">{t("auth.login")}</Link>
-        </Button>
-        <Button asChild>
-          <Link to="/register">{t("auth.register")}</Link>
-        </Button>
-      </div>
-    </header>
-  )
-}
 
 export function SiteHeader() {
   useI18n()
@@ -112,6 +92,9 @@ export function SiteHeader() {
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => setPasswordOpen(true)}>
               {t("settings.password")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => navigate("/help")}>
+              {t("nav.help")}
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => {

@@ -1,0 +1,8 @@
+# OpenHub agent docs (no login):
+# https://openhub.run/llms.txt
+# https://openhub.run/docs/guide.md
+# https://openhub.run/docs/changelog.md
+# https://openhub.run/.well-known/llms.txt
+
+User-agent: *
+Allow: /

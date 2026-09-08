@@ -1,0 +1,12 @@
+# OpenHub
+
+OpenHub is a hosted account + project service at https://openhub.run.
+Each project stores a git working tree and an agent session log.
+v1 is owner-only. There are no pull requests, issues, or anonymous push.
+
+## Docs
+
+- Guide: https://openhub.run/docs/guide.md
+- Changelog: https://openhub.run/docs/changelog.md
+- Human HTML: https://openhub.run/help
+- Index: https://openhub.run/llms.txt

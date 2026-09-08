@@ -8,7 +8,11 @@ import { Label } from "@/components/ui/label"
 import { api, getToken, setToken } from "@/lib/api"
 import { t, useI18n } from "@/lib/i18n"
 
-type RegisterStep = "email" | "code" | "credentials"
+type RegisterStep = "email" | "code" | "password"
+
+function usernameFromEmail(email: string): string {
+  return email.split("@")[0]?.toLowerCase().replace(/[^a-z0-9_-]/g, "") ?? ""
+}
 
 export default function RegisterPage() {
   useI18n()
@@ -31,7 +35,6 @@ export default function RegisterPage() {
 
   if (getToken()) return <Navigate to="/" replace />
 
-  // Step 1: Submit Email to send verification code and advance to Step 2
   async function onSendCode(e?: FormEvent) {
     if (e) e.preventDefault()
     const trimmed = email.trim()
@@ -55,11 +58,9 @@ export default function RegisterPage() {
     }
   }
 
-  // Step 2: Validate code and advance to Step 3
   async function onVerifyCode(e: FormEvent) {
     e.preventDefault()
-    const trimmedCode = code.trim()
-    if (trimmedCode.length !== 6) {
+    if (code.trim().length !== 6) {
       toast.error(t("auth.codeInvalid"))
       return
     }
@@ -67,17 +68,12 @@ export default function RegisterPage() {
     try {
       await api<{ ok: boolean }>("/api/v1/auth/verify-code", {
         method: "POST",
-        body: JSON.stringify({
-          email: email.trim(),
-          code: trimmedCode,
-        }),
+        body: JSON.stringify({ email: email.trim(), code: code.trim() }),
       })
-      // Pre-fill username default from email if empty
       if (!username.trim()) {
-        const defaultName = email.split("@")[0].toLowerCase().replace(/[^a-z0-9_-]/g, "")
-        setUsername(defaultName)
+        setUsername(usernameFromEmail(email.trim()))
       }
-      setStep("credentials")
+      setStep("password")
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("common.error"))
     } finally {
@@ -85,7 +81,6 @@ export default function RegisterPage() {
     }
   }
 
-  // Step 3: Set Username & Password to finish registration
   async function onCompleteRegister(e: FormEvent) {
     e.preventDefault()
     if (password.length < 8) {
@@ -111,7 +106,6 @@ export default function RegisterPage() {
         setToken(res.token)
         toast.success(t("auth.registerOk"))
         navigate("/", { replace: true })
-        return
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("common.error"))
@@ -121,150 +115,137 @@ export default function RegisterPage() {
   }
 
   return (
-    <AuthCardLayout
-      activeTab="register"
-      title={t("auth.workspaceRegisterTitle")}
-      subtitle={t("auth.workspaceRegisterDesc")}
-    >
-      {step === "email" && (
-        <form className="space-y-4" onSubmit={onSendCode}>
-          <div className="space-y-2">
-            <Label htmlFor="email">{t("auth.email")}</Label>
-            <Input
-              id="email"
-              name="email"
-              type="email"
-              inputMode="email"
-              autoComplete="username"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@company.com"
-              required
-              autoFocus
-            />
-          </div>
-          <Button type="submit" className="w-full" disabled={sendingCode || !email.trim()}>
-            {sendingCode ? "..." : t("auth.sendCode")}
-          </Button>
-        </form>
-      )}
+    <AuthCardLayout activeTab="register" title={t("auth.registerTitle")}>
+      <div className="min-h-[320px]">
+        {step === "email" && (
+          <form className="space-y-4" onSubmit={onSendCode}>
+            <div className="space-y-2">
+              <Label htmlFor="email">{t("auth.email")}</Label>
+              <Input
+                id="email"
+                name="email"
+                type="email"
+                inputMode="email"
+                autoComplete="username"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder={t("auth.emailPlaceholder")}
+                required
+                autoFocus
+              />
+            </div>
+            <Button type="submit" className="w-full" disabled={sendingCode || !email.trim()}>
+              {sendingCode ? t("common.loading") : t("auth.sendCode")}
+            </Button>
+          </form>
+        )}
 
-      {step === "code" && (
-        <form className="space-y-4" onSubmit={onVerifyCode}>
-          <div className="text-body-sm text-muted-foreground bg-muted/50 p-2.5 rounded border flex items-center justify-between">
-            <span className="truncate">{email}</span>
-            <button
-              type="button"
-              className="text-xs text-primary underline shrink-0 ml-2"
-              onClick={() => setStep("email")}
-            >
-              {t("auth.back")}
-            </button>
-          </div>
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="code">{t("auth.code")}</Label>
+        {step === "code" && (
+          <form className="space-y-4" onSubmit={onVerifyCode}>
+            <div className="flex items-center justify-between rounded-md border bg-muted/50 px-3 py-2 text-body-md text-muted-foreground">
+              <span className="truncate">{email}</span>
               <button
                 type="button"
-                className="text-xs text-primary underline disabled:opacity-50 disabled:no-underline"
-                disabled={sendingCode || countdown > 0}
-                onClick={() => void onSendCode()}
+                className="ml-2 shrink-0 text-meta-sm text-primary underline-offset-4 hover:underline"
+                onClick={() => setStep("email")}
               >
-                {countdown > 0 ? `${countdown}s` : t("auth.resendCode")}
+                {t("auth.changeEmail")}
               </button>
             </div>
-            <Input
-              id="code"
-              name="code"
-              type="text"
-              inputMode="numeric"
-              pattern="[0-9]*"
-              maxLength={6}
-              placeholder="123456"
-              className="text-center text-lg tracking-widest font-mono"
-              value={code}
-              onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-              required
-              autoFocus
-            />
-          </div>
-          <div className="flex gap-2 pt-2">
-            <Button
-              type="button"
-              variant="outline"
-              className="w-1/3"
-              onClick={() => setStep("email")}
-            >
-              {t("auth.back")}
-            </Button>
-            <Button
-              type="submit"
-              className="flex-1"
-              disabled={pending || code.trim().length !== 6}
-            >
-              {pending ? "..." : t("auth.next")}
-            </Button>
-          </div>
-        </form>
-      )}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="code">{t("auth.code")}</Label>
+                <button
+                  type="button"
+                  className="text-meta-sm text-primary underline-offset-4 hover:underline disabled:no-underline disabled:opacity-50"
+                  disabled={sendingCode || countdown > 0}
+                  onClick={() => void onSendCode()}
+                >
+                  {countdown > 0 ? `${countdown}s` : t("auth.resendCode")}
+                </button>
+              </div>
+              <Input
+                id="code"
+                name="code"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={6}
+                autoComplete="one-time-code"
+                placeholder={t("auth.codePlaceholder")}
+                className="text-center tabular-nums"
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                required
+                autoFocus
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" className="w-1/3" onClick={() => setStep("email")}>
+                {t("auth.back")}
+              </Button>
+              <Button type="submit" className="flex-1" disabled={pending || code.trim().length !== 6}>
+                {pending ? t("common.loading") : t("auth.next")}
+              </Button>
+            </div>
+          </form>
+        )}
 
-      {step === "credentials" && (
-        <form className="space-y-4" onSubmit={onCompleteRegister}>
-          <div className="space-y-2">
-            <Label htmlFor="username">{t("auth.username")}</Label>
-            <Input
-              id="username"
-              name="username"
-              type="text"
-              autoComplete="username"
-              placeholder={t("auth.usernamePlaceholder")}
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              required
-              autoFocus
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="password">{t("auth.password")}</Label>
-            <Input
-              id="password"
-              name="password"
-              type="password"
-              autoComplete="new-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              minLength={8}
-              required
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="confirm">{t("auth.confirmPassword")}</Label>
-            <Input
-              id="confirm"
-              name="confirm-password"
-              type="password"
-              autoComplete="new-password"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              minLength={8}
-              required
-            />
-          </div>
-          <div className="flex gap-2 pt-2">
-            <Button
-              type="button"
-              variant="outline"
-              className="w-1/3"
-              onClick={() => setStep("code")}
-            >
-              {t("auth.back")}
-            </Button>
-            <Button type="submit" className="flex-1" disabled={pending}>
-              {pending ? "..." : t("auth.completeRegister")}
-            </Button>
-          </div>
-        </form>
-      )}
+        {step === "password" && (
+          <form className="space-y-4" onSubmit={onCompleteRegister}>
+            <div className="space-y-2">
+              <Label htmlFor="username">{t("auth.username")}</Label>
+              <Input
+                id="username"
+                name="username"
+                type="text"
+                autoComplete="username"
+                placeholder={t("auth.usernamePlaceholder")}
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                required
+                autoFocus
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="password">{t("auth.password")}</Label>
+              <Input
+                id="password"
+                name="password"
+                type="password"
+                autoComplete="new-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={t("auth.passwordPlaceholder")}
+                minLength={8}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirm">{t("auth.confirmPassword")}</Label>
+              <Input
+                id="confirm"
+                name="confirm-password"
+                type="password"
+                autoComplete="new-password"
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+                placeholder={t("auth.confirmPasswordPlaceholder")}
+                minLength={8}
+                required
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" className="w-1/3" onClick={() => setStep("code")}>
+                {t("auth.back")}
+              </Button>
+              <Button type="submit" className="flex-1" disabled={pending}>
+                {pending ? t("common.loading") : t("auth.register")}
+              </Button>
+            </div>
+          </form>
+        )}
+      </div>
     </AuthCardLayout>
   )
 }
