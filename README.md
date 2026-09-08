@@ -54,7 +54,7 @@ Working trees: `$OPENHUB_DATA_DIR/<repo>` (default `./data/repos/<repo>`). Same 
 
 ## Deploy
 
-[`deploy/README.md`](deploy/README.md) — push to `main` runs CI then GitHub Actions SSH-deploys a Docker image (API + Admin) to the GCP VM.
+[`deploy/README.md`](deploy/README.md) — push to `main` runs CI then GitHub Actions rsyncs the binary and Admin UI to the GCP VM and restarts `openhub.service`.
 
 ## Development
 

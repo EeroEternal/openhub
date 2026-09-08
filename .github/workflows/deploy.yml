@@ -12,12 +12,11 @@ concurrency:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
   deploy:
-    name: Build image and restart GCP VM
-    runs-on: ubuntu-latest
+    name: Build and rsync to pararouter-hk
+    runs-on: ubuntu-22.04
     timeout-minutes: 40
     if: >
       github.event_name == 'workflow_dispatch' ||
@@ -36,56 +35,65 @@ jobs:
           else
             sha="${{ github.sha }}"
           fi
-          repo="$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "image=ghcr.io/${repo}" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v4
         with:
           ref: ${{ steps.rev.outputs.sha }}
 
-      - uses: docker/setup-buildx-action@v3
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
 
-      - uses: docker/login-action@v3
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          shared-key: ci-rust
 
-      - uses: docker/build-push-action@v6
+      - name: Build openhub binary
+        run: cargo build --release --bin openhub
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          context: .
-          file: deploy/Dockerfile
-          push: true
-          tags: |
-            ${{ steps.rev.outputs.image }}:${{ steps.rev.outputs.sha }}
-            ${{ steps.rev.outputs.image }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=min
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
 
-      - name: Restart container on GCP VM
-        uses: appleboy/ssh-action@v1.2.0
+      - name: Build Admin UI
+        working-directory: admin
+        run: |
+          npm ci
+          npm run build
+
+      - uses: webfactory/ssh-agent@v0.9.1
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+
+      - name: Rsync binary + UI and restart systemd
         env:
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GHCR_USER: ${{ github.actor }}
-          IMAGE: ${{ steps.rev.outputs.image }}:${{ steps.rev.outputs.sha }}
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: GHCR_TOKEN,GHCR_USER,IMAGE
-          script_stop: true
-          script: |
-            set -euo pipefail
-            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
-            docker pull "$IMAGE"
-            docker stop openhub || true
-            docker rm openhub || true
-            docker run -d --name openhub --restart unless-stopped \
-              -p 127.0.0.1:8080:8080 \
-              -v /var/lib/openhub:/data \
-              -e OPENHUB_PUBLIC_ORIGIN=https://openhub.run \
-              "$IMAGE"
-            docker image prune -f
-            curl -fsS --retry 5 --retry-delay 2 http://127.0.0.1:8080/health
-            curl -fsS http://127.0.0.1:8080/llms.txt | head -n 5
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          ssh-keyscan -T 15 -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+          rsync -az target/release/openhub "${DEPLOY_USER}@${DEPLOY_HOST}:/tmp/openhub.new"
+          rsync -az --delete admin/dist/ "${DEPLOY_USER}@${DEPLOY_HOST}:/tmp/openhub-www.new/"
+          ssh "${DEPLOY_USER}@${DEPLOY_HOST}" bash -s <<'REMOTE'
+          set -euo pipefail
+          test -x /tmp/openhub.new
+          test -f /tmp/openhub-www.new/index.html
+          sudo systemctl stop openhub
+          install -d /home/xinference/src/openhub/target/release
+          install -m 755 /tmp/openhub.new /home/xinference/src/openhub/target/release/openhub
+          if [ -d /home/xinference/openhub-www ]; then
+            rm -rf /home/xinference/openhub-www.prev
+            mv /home/xinference/openhub-www /home/xinference/openhub-www.prev
+          fi
+          mv /tmp/openhub-www.new /home/xinference/openhub-www
+          sudo systemctl start openhub
+          sleep 2
+          curl -fsS http://127.0.0.1:8080/health
+          test -f /home/xinference/openhub-www/llms.txt
+          REMOTE
