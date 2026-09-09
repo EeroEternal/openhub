@@ -14,17 +14,14 @@ permissions:
   contents: read
 
 jobs:
-  deploy:
-    name: Build and rsync to pararouter-hk
-    runs-on: ubuntu-22.04
-    timeout-minutes: 40
+  deploy-ui:
+    name: Rsync Admin UI to pararouter-hk
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     if: >
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.head_branch == 'main')
-    env:
-      CARGO_TERM_COLOR: always
-      CARGO_INCREMENTAL: "0"
     steps:
       - name: Resolve SHA
         id: rev
@@ -40,17 +37,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ steps.rev.outputs.sha }}
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: ci-rust
-
-      - name: Build openhub binary
-        run: cargo build --release --bin openhub
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -69,7 +55,7 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
 
-      - name: Rsync binary + UI and restart systemd
+      - name: Rsync Admin dist
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
@@ -78,22 +64,14 @@ jobs:
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
           ssh-keyscan -T 15 -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
-          rsync -az target/release/openhub "${DEPLOY_USER}@${DEPLOY_HOST}:/tmp/openhub.new"
           rsync -az --delete admin/dist/ "${DEPLOY_USER}@${DEPLOY_HOST}:/tmp/openhub-www.new/"
           ssh "${DEPLOY_USER}@${DEPLOY_HOST}" bash -s <<'REMOTE'
           set -euo pipefail
-          test -x /tmp/openhub.new
           test -f /tmp/openhub-www.new/index.html
-          sudo systemctl stop openhub
-          install -d /home/xinference/src/openhub/target/release
-          install -m 755 /tmp/openhub.new /home/xinference/src/openhub/target/release/openhub
           if [ -d /home/xinference/openhub-www ]; then
             rm -rf /home/xinference/openhub-www.prev
             mv /home/xinference/openhub-www /home/xinference/openhub-www.prev
           fi
           mv /tmp/openhub-www.new /home/xinference/openhub-www
-          sudo systemctl start openhub
-          sleep 2
-          curl -fsS http://127.0.0.1:8080/health
           test -f /home/xinference/openhub-www/llms.txt
           REMOTE
