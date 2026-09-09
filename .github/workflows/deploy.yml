@@ -48,7 +48,7 @@ jobs:
       - name: Build Admin UI
         working-directory: admin
         run: |
-          npm ci
+          npm install
           npm run build
 
       - uses: webfactory/ssh-agent@v0.9.1
