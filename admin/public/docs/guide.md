@@ -25,6 +25,9 @@ Authorization: Bearer <session or oh_ token>
 | POST | `/api/v1/auth/verify-code` | `{ "email", "code" }` |
 | POST | `/api/v1/auth/register` | `{ "email", "code", "username?", "password" }` → `{ token }` |
 | POST | `/api/v1/auth/login` | `{ "email", "password" }` → `{ token }` |
+| POST | `/api/v1/auth/forgot/send-code` | `{ "email" }` always `{ ok: true }` |
+| POST | `/api/v1/auth/forgot/verify-code` | `{ "email", "code" }` |
+| POST | `/api/v1/auth/forgot/reset` | `{ "email", "code", "password" }` → `{ token }` |
 | POST | `/api/v1/auth/logout` | |
 | GET | `/api/v1/me` | current user |
 | POST | `/api/v1/me/password` | `{ "current_password", "new_password" }` |

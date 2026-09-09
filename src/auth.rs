@@ -208,6 +208,95 @@ pub async fn set_password(
     Ok(Json(json!({ "token": session })))
 }
 
+/// Always returns ok so callers cannot probe which emails have accounts.
+pub async fn send_reset_code(
+    State(hub): State<HubState>,
+    Json(body): Json<SendCodeRequest>,
+) -> Result<Json<Value>> {
+    let email = normalize_email(&body.email)?;
+    if let Some(user) = store::find_user_by_email(&hub.db, &email).await?
+        && user.password_hash.is_some()
+    {
+        let code: u32 = rand::random::<u32>() % 900_000 + 100_000;
+        let code_str = code.to_string();
+        store::insert_token_minutes(&hub.db, &user.id, "reset_code", &hash_token(&code_str), 10)
+            .await?;
+        hub.mail.send_password_reset_code(&email, &code_str).await?;
+    }
+    Ok(Json(json!({ "ok": true })))
+}
+
+pub async fn verify_reset_code(
+    State(hub): State<HubState>,
+    Json(body): Json<VerifyCodeRequest>,
+) -> Result<Json<Value>> {
+    let email = normalize_email(&body.email)?;
+    let user = store::find_user_by_email(&hub.db, &email)
+        .await?
+        .ok_or_else(|| Error::Unauthorized("invalid or expired verification code".into()))?;
+    if hub.mail.skips_email() {
+        return Ok(Json(json!({ "ok": true })));
+    }
+    let code = body.code.trim();
+    if code.is_empty() {
+        return Err(Error::InvalidRequest("verification code required".into()));
+    }
+    let Some(user_id) = store::find_valid_token(&hub.db, "reset_code", &hash_token(code)).await?
+    else {
+        return Err(Error::Unauthorized(
+            "invalid or expired verification code".into(),
+        ));
+    };
+    if user_id != user.id {
+        return Err(Error::Unauthorized("verification code mismatch".into()));
+    }
+    Ok(Json(json!({ "ok": true })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ResetPasswordRequest {
+    pub email: String,
+    pub code: Option<String>,
+    pub password: String,
+}
+
+pub async fn reset_password(
+    State(hub): State<HubState>,
+    Json(body): Json<ResetPasswordRequest>,
+) -> Result<Json<Value>> {
+    if body.password.len() < 8 {
+        return Err(Error::InvalidRequest(
+            "password must be at least 8 characters".into(),
+        ));
+    }
+    let email = normalize_email(&body.email)?;
+    let user = store::find_user_by_email(&hub.db, &email)
+        .await?
+        .ok_or_else(|| Error::Unauthorized("invalid or expired verification code".into()))?;
+    if user.password_hash.is_none() {
+        return Err(Error::Unauthorized(
+            "invalid or expired verification code".into(),
+        ));
+    }
+    if !hub.mail.skips_email() {
+        let code = body.code.as_deref().unwrap_or("").trim();
+        if code.is_empty() {
+            return Err(Error::InvalidRequest("verification code required".into()));
+        }
+        let user_id = store::take_token(&hub.db, "reset_code", &hash_token(code))
+            .await?
+            .ok_or_else(|| Error::Unauthorized("invalid or expired verification code".into()))?;
+        if user_id != user.id {
+            return Err(Error::Unauthorized("verification code mismatch".into()));
+        }
+    }
+    let hash = hash_password(&body.password)?;
+    store::set_password_and_verify(&hub.db, &user.id, &hash).await?;
+    let session = issue_session(&hub, &user.id).await?;
+    store::delete_other_sessions(&hub.db, &user.id, &hash_token(&session)).await?;
+    Ok(Json(json!({ "ok": true, "token": session })))
+}
+
 pub async fn login(
     State(hub): State<HubState>,
     Json(body): Json<LoginRequest>,

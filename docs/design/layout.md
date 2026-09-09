@@ -109,12 +109,16 @@ Structure (same split as the xrouter login page):
 - Full-viewport row: `min-h-screen flex`. Top-right chrome (not a product top bar): optional **Agent guide** text link, then the language switcher. Guide is muted text, not a primary button.
 - **Left** (`hidden lg:flex lg:w-1/2`, muted surface): product mark + name, one headline (`text-3xl font-semibold`, the only size exception on this page), one supporting sentence (`text-body-md`), optional three stats (`text-metric` + `text-meta-sm`). Copy is **product-specific** — replace `auth.productName`, `auth.brandingTitle`, `auth.brandingSubtitle`, `auth.brandingDescription`, and `auth.stat*` when adopting the kit. Do not ship another product's name. Do not use `text-5xl` / `font-bold`.
 - **Right**: one form card. Form title uses `text-page-title` only; no casual subtitle. Shared `Input` / `Label` / `Button` — do **not** restyle to `h-12`, `rounded-xl`, `tracking-widest`, `text-base`, or extra weights (Type zoo).
-- **Login**: one step. Email + password (show/hide). One primary submit.
+- **Login**: one step. Email + password (show/hide). Optional **Forgot password?** text link (not a second primary). One primary submit.
 - **Register**: three steps in the **same** card, never one tiled form. Reserve `min-h` so step changes do not jump.
   1. Email → primary **Send code**
   2. Code only. Shown email + change-email text button. Resend is a text button, not a second primary. Primary **Continue**.
   3. Username + password + confirm. Primary **Create account**. Username is product-specific (`username/slug` clone URLs).
-- Public routes `/login`, `/register`, `/verify`, and `/help` must not appear in `nav.ts`.
+- **Forgot password**: three steps in the **same** card (`/forgot`). Not in `nav.ts`. Reserve `min-h`.
+  1. Email → primary **Send code** (`POST /api/v1/auth/forgot/send-code`). Always succeeds; do not reveal whether the email exists.
+  2. Code only. Resend is a text button. Primary **Continue**.
+  3. New password + confirm. Primary **Reset password**. Revokes other sessions.
+- Public routes `/login`, `/register`, `/forgot`, `/verify`, and `/help` must not appear in `nav.ts`.
 - Do not put **Agent guide** next to Register / Sign in on the form card (different job). Link lives top-right with language. Do not print `/llms.txt` or `.md` paths on the left branding panel. Full pattern: [`agent-docs.md`](agent-docs.md).
 - **Send code** is `POST /api/v1/auth/send-code` → product handler → `Mailer::send_verification_code`. Outbound mail is Cloudflare-first; see [`docs/architecture.md`](../architecture.md) § Outbound mail. Do not speak SMTP from the UI or add a parallel mail client.
 

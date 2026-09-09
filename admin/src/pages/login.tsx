@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react"
-import { Navigate, useNavigate } from "react-router-dom"
+import { Link, Navigate, useNavigate } from "react-router-dom"
 import { Eye, EyeOff } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -76,6 +76,14 @@ export default function LoginPage() {
             >
               {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </button>
+          </div>
+          <div className="flex justify-end">
+            <Link
+              to="/forgot"
+              className="text-meta-sm text-primary underline-offset-4 hover:underline"
+            >
+              {t("auth.forgotPassword")}
+            </Link>
           </div>
         </div>
         <Button type="submit" className="w-full" disabled={pending}>

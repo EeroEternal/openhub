@@ -226,6 +226,29 @@ pub async fn take_token(
     Ok(Some(user_id))
 }
 
+pub async fn find_valid_token(
+    pool: &SqlitePool,
+    purpose: &str,
+    token_hash: &str,
+) -> Result<Option<String>> {
+    let row = sqlx::query(
+        "SELECT user_id, expires_at FROM auth_tokens WHERE purpose = ? AND token_hash = ?",
+    )
+    .bind(purpose)
+    .bind(token_hash)
+    .fetch_optional(pool)
+    .await?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    let user_id: String = row.get("user_id");
+    let expires_at: String = row.get("expires_at");
+    if expires_at < now() {
+        return Ok(None);
+    }
+    Ok(Some(user_id))
+}
+
 pub async fn find_session_user(pool: &SqlitePool, token_hash: &str) -> Result<Option<User>> {
     let row = sqlx::query(
         "SELECT u.id, u.email, COALESCE(u.username, lower(substr(u.email, 1, instr(u.email, '@') - 1))) AS username, u.password_hash, u.email_verified_at, t.expires_at

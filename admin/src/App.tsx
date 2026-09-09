@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Toaster } from "@/components/ui/sonner"
 import { getToken } from "@/lib/api"
+import ForgotPage from "@/pages/forgot"
 import HelpPage from "@/pages/help"
 import LoginPage from "@/pages/login"
 import ProjectPage from "@/pages/project"
@@ -21,6 +22,7 @@ export default function App() {
       <Toaster position="top-center" richColors />
       <Routes>
         <Route path="login" element={<LoginPage />} />
+        <Route path="forgot" element={<ForgotPage />} />
         <Route path="register" element={<RegisterPage />} />
         <Route path="verify" element={<VerifyPage />} />
         <Route path="help" element={<HelpPage />} />

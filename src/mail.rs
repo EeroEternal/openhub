@@ -77,14 +77,30 @@ impl Mailer {
     }
 
     pub async fn send_verification_code(&self, to: &str, code: &str) -> Result<()> {
+        self.send_code_email(to, code, "complete your registration", "verification code")
+            .await
+    }
+
+    pub async fn send_password_reset_code(&self, to: &str, code: &str) -> Result<()> {
+        self.send_code_email(to, code, "reset your password", "password reset code")
+            .await
+    }
+
+    async fn send_code_email(
+        &self,
+        to: &str,
+        code: &str,
+        action: &str,
+        log_label: &str,
+    ) -> Result<()> {
         let subject = format!("Your OpenHub verification code is {code}");
         let text = format!(
-            "Your OpenHub verification code is: {code}\n\nThis code expires in 10 minutes."
+            "Your OpenHub verification code is: {code}\n\nUse it to {action}. This code expires in 10 minutes."
         );
         let html = format!(
             "<div style=\"font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px; border: 1px solid #e5e7eb; border-radius: 8px;\">\
                 <h2 style=\"color: #111827; margin-bottom: 16px;\">OpenHub Verification Code</h2>\
-                <p style=\"color: #4b5563; font-size: 15px;\">Please use the following verification code to complete your registration:</p>\
+                <p style=\"color: #4b5563; font-size: 15px;\">Please use the following verification code to {action}:</p>\
                 <div style=\"font-size: 32px; font-weight: bold; letter-spacing: 6px; color: #2563eb; background: #f3f4f6; padding: 16px; text-align: center; border-radius: 6px; margin: 20px 0;\">\
                     {code}\
                 </div>\
@@ -94,7 +110,7 @@ impl Mailer {
 
         match &self.inner {
             MailerKind::Log => {
-                tracing::info!(to, code, "verification code (OPENHUB_MAIL_* not set)");
+                tracing::info!(to, code, kind = log_label, "OPENHUB_MAIL_* not set");
                 Ok(())
             }
             MailerKind::Cloudflare {

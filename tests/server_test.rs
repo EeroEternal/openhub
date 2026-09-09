@@ -319,6 +319,86 @@ async fn serves_static_files_and_spa_fallback() {
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
+#[tokio::test]
+async fn forgot_password_resets_and_revokes_old_login() {
+    let (hub, _tmp) = test_hub().await;
+    let app = create_router(hub);
+
+    let (status, body) = json_request(
+        app.clone(),
+        "POST",
+        "/api/v1/auth/register",
+        None,
+        Some(serde_json::json!({
+            "email": "reset@example.com",
+            "password": "oldpass12"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let (status, sent) = json_request(
+        app.clone(),
+        "POST",
+        "/api/v1/auth/forgot/send-code",
+        None,
+        Some(serde_json::json!({ "email": "nobody@example.com" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{sent}");
+    assert_eq!(sent["ok"], true);
+
+    let (status, sent) = json_request(
+        app.clone(),
+        "POST",
+        "/api/v1/auth/forgot/send-code",
+        None,
+        Some(serde_json::json!({ "email": "reset@example.com" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{sent}");
+
+    let (status, reset) = json_request(
+        app.clone(),
+        "POST",
+        "/api/v1/auth/forgot/reset",
+        None,
+        Some(serde_json::json!({
+            "email": "reset@example.com",
+            "password": "newpass12"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{reset}");
+    assert!(reset["token"].as_str().is_some());
+
+    let (status, _) = json_request(
+        app.clone(),
+        "POST",
+        "/api/v1/auth/login",
+        None,
+        Some(serde_json::json!({
+            "email": "reset@example.com",
+            "password": "oldpass12"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    let (status, login) = json_request(
+        app.clone(),
+        "POST",
+        "/api/v1/auth/login",
+        None,
+        Some(serde_json::json!({
+            "email": "reset@example.com",
+            "password": "newpass12"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{login}");
+}
+
 async fn raw_request(app: axum::Router, uri: &str) -> (StatusCode, Vec<u8>) {
     let response = app
         .oneshot(

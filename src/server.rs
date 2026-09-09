@@ -51,6 +51,12 @@ pub fn create_router_with_static(hub: HubState, static_dir: Option<PathBuf>) -> 
         .route("/api/v1/auth/register", post(auth::register))
         .route("/api/v1/auth/password", post(auth::set_password))
         .route("/api/v1/auth/login", post(auth::login))
+        .route("/api/v1/auth/forgot/send-code", post(auth::send_reset_code))
+        .route(
+            "/api/v1/auth/forgot/verify-code",
+            post(auth::verify_reset_code),
+        )
+        .route("/api/v1/auth/forgot/reset", post(auth::reset_password))
         .route("/api/v1/auth/logout", post(auth::logout))
         .route("/api/v1/me", get(auth::me))
         .route("/api/v1/me/password", post(auth::change_password))
