@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { AuthCardLayout } from "@/components/layout/auth-card-layout"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { api, getToken, setToken } from "@/lib/api"
+import { api, getToken, nextPath, setToken } from "@/lib/api"
 import { t, useI18n } from "@/lib/i18n"
 
 type RegisterStep = "email" | "code" | "password"
@@ -33,7 +33,8 @@ export default function RegisterPage() {
     return () => clearTimeout(timer)
   }, [countdown])
 
-  if (getToken()) return <Navigate to="/" replace />
+  const after = nextPath("/")
+  if (getToken()) return <Navigate to={after} replace />
 
   async function onSendCode(e?: FormEvent) {
     if (e) e.preventDefault()
@@ -105,7 +106,7 @@ export default function RegisterPage() {
       if (res.token) {
         setToken(res.token)
         toast.success(t("auth.registerOk"))
-        navigate("/", { replace: true })
+        navigate(after, { replace: true })
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("common.error"))

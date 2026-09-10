@@ -456,6 +456,96 @@ async fn delete_project_removes_it() {
     assert_eq!(list["projects"].as_array().map(|a| a.len()), Some(0));
 }
 
+#[tokio::test]
+async fn cli_browser_login_issues_session() {
+    let (hub, _tmp) = test_hub().await;
+    let app = create_router(hub);
+
+    let (status, start) =
+        json_request(app.clone(), "POST", "/api/v1/auth/cli/start", None, None).await;
+    assert_eq!(status, StatusCode::OK, "{start}");
+    let device_code = start["device_code"].as_str().unwrap();
+    let user_code = start["user_code"].as_str().unwrap();
+    assert!(
+        start["verification_uri"]
+            .as_str()
+            .unwrap()
+            .contains("/cli?code=")
+    );
+
+    let (status, poll) = json_request(
+        app.clone(),
+        "POST",
+        "/api/v1/auth/cli/poll",
+        None,
+        Some(serde_json::json!({ "device_code": device_code })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{poll}");
+    assert_eq!(poll["status"], "pending");
+
+    let (status, _) = json_request(
+        app.clone(),
+        "POST",
+        "/api/v1/auth/cli/approve",
+        None,
+        Some(serde_json::json!({ "code": user_code })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    let (status, registered) = json_request(
+        app.clone(),
+        "POST",
+        "/api/v1/auth/register",
+        None,
+        Some(serde_json::json!({
+            "email": "cli@example.com",
+            "password": "password1"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{registered}");
+    let session = registered["token"].as_str().unwrap();
+
+    let (status, approved) = json_request(
+        app.clone(),
+        "POST",
+        "/api/v1/auth/cli/approve",
+        Some(session),
+        Some(serde_json::json!({ "code": user_code })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{approved}");
+
+    let (status, granted) = json_request(
+        app.clone(),
+        "POST",
+        "/api/v1/auth/cli/poll",
+        None,
+        Some(serde_json::json!({ "device_code": device_code })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{granted}");
+    assert_eq!(granted["status"], "ok");
+    let cli_token = granted["token"].as_str().unwrap();
+    assert!(!cli_token.is_empty());
+
+    let (status, me) = json_request(app.clone(), "GET", "/api/v1/me", Some(cli_token), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(me["email"], "cli@example.com");
+
+    let (status, again) = json_request(
+        app,
+        "POST",
+        "/api/v1/auth/cli/poll",
+        None,
+        Some(serde_json::json!({ "device_code": device_code })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{again}");
+}
+
 async fn raw_request(app: axum::Router, uri: &str) -> (StatusCode, Vec<u8>) {
     let response = app
         .oneshot(

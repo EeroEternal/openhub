@@ -194,4 +194,10 @@ export const en: Record<string, string> = {
   "common.language": "Language",
   "common.copied": "Copied",
   "common.selectPlaceholder": "Select",
+  "cli.title": "Authorize CLI",
+  "cli.body": "The oh command on this machine asked to sign in as you. Approve only if you ran oh login.",
+  "cli.authorize": "Authorize",
+  "cli.done": "Signed in. You can close this tab and return to the terminal.",
+  "cli.missingCode": "Missing login code. Run oh login again.",
+  "cli.console": "Back to console",
 }

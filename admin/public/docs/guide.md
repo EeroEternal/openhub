@@ -40,9 +40,12 @@ Password minimum is 8 characters. Send-code mails a 6-digit code.
 CLI:
 
 ```
+oh login [--url https://openhub.run]
 oh login <email> <password> [--url https://openhub.run]
 oh login --token <token> [--url https://openhub.run]
 ```
+
+`oh login` with no arguments opens the browser. Sign in on the site, then approve the CLI.
 
 Credentials are stored in `~/.openhub/credentials` (mode 0600).
 

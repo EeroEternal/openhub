@@ -452,7 +452,7 @@ pub fn bearer_from_headers(headers: &HeaderMap) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-async fn issue_session(hub: &HubState, user_id: &str) -> Result<String> {
+pub(crate) async fn issue_session(hub: &HubState, user_id: &str) -> Result<String> {
     let raw = random_token();
     store::insert_token(&hub.db, user_id, "session", &hash_token(&raw), 24 * 30).await?;
     Ok(raw)
@@ -485,7 +485,7 @@ fn normalize_username(username: &str) -> Result<String> {
     Ok(username)
 }
 
-fn random_token() -> String {
+pub(crate) fn random_token() -> String {
     let bytes: [u8; 32] = rand::random();
     hex::encode(bytes)
 }

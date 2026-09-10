@@ -53,7 +53,7 @@ Laptop                              openhub.run
 3. `POST /api/v1/auth/password` `{ "token", "password" }`  
    Sets password, marks email verified, issues a session.
 4. Later: `POST /api/v1/auth/login` `{ "email", "password" }` → session.  
-   CLI: `oh login` stores a bearer token in `~/.openhub/credentials` (0600).
+   CLI: `oh login` opens the browser to authorize, then stores a bearer token in `~/.openhub/credentials` (0600). Email/password and `--token` still work.
 
 Password: salted hash (Argon2id). Session: random token hashed at rest, TTL ~30 days, revoke on logout.
 

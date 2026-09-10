@@ -10,6 +10,7 @@ import ProjectsPage from "@/pages/projects"
 import RegisterPage from "@/pages/register"
 import SettingsPage from "@/pages/settings"
 import VerifyPage from "@/pages/verify"
+import CliLoginPage from "@/pages/cli"
 
 function RequireAuth() {
   if (!getToken()) return <Navigate to="/login" replace />
@@ -26,6 +27,7 @@ export default function App() {
         <Route path="register" element={<RegisterPage />} />
         <Route path="verify" element={<VerifyPage />} />
         <Route path="help" element={<HelpPage />} />
+        <Route path="cli" element={<CliLoginPage />} />
         <Route element={<RequireAuth />}>
           <Route index element={<ProjectsPage />} />
           <Route path="settings" element={<SettingsPage />} />

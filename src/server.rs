@@ -19,6 +19,7 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 use crate::auth;
+use crate::cli_auth;
 use crate::error::Error;
 use crate::git_http;
 use crate::git_sync;
@@ -53,6 +54,9 @@ pub fn create_router_with_static(hub: HubState, static_dir: Option<PathBuf>) -> 
         .route("/api/v1/auth/register", post(auth::register))
         .route("/api/v1/auth/password", post(auth::set_password))
         .route("/api/v1/auth/login", post(auth::login))
+        .route("/api/v1/auth/cli/start", post(cli_auth::start))
+        .route("/api/v1/auth/cli/poll", post(cli_auth::poll))
+        .route("/api/v1/auth/cli/approve", post(cli_auth::approve))
         .route("/api/v1/auth/forgot/send-code", post(auth::send_reset_code))
         .route(
             "/api/v1/auth/forgot/verify-code",

@@ -500,6 +500,83 @@ pub async fn delete_project(
     Ok(Some(project))
 }
 
+pub enum CliPoll {
+    Pending,
+    Expired,
+    Unknown,
+    Granted(String),
+}
+
+pub async fn insert_cli_login(
+    pool: &SqlitePool,
+    device_code_hash: &str,
+    user_code: &str,
+    ttl_secs: i64,
+) -> Result<()> {
+    let expires = (Utc::now() + Duration::seconds(ttl_secs)).to_rfc3339();
+    sqlx::query(
+        "INSERT INTO cli_logins (id, device_code_hash, user_code, expires_at, created_at)
+         VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(new_id())
+    .bind(device_code_hash)
+    .bind(user_code)
+    .bind(expires)
+    .bind(now())
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn approve_cli_login(
+    pool: &SqlitePool,
+    user_code: &str,
+    user_id: &str,
+    granted_token: &str,
+) -> Result<u64> {
+    let res = sqlx::query(
+        "UPDATE cli_logins SET user_id = ?, granted_token = ?
+         WHERE user_code = ? AND granted_token IS NULL AND expires_at > ?",
+    )
+    .bind(user_id)
+    .bind(granted_token)
+    .bind(user_code)
+    .bind(now())
+    .execute(pool)
+    .await?;
+    Ok(res.rows_affected())
+}
+
+pub async fn poll_cli_login(pool: &SqlitePool, device_code_hash: &str) -> Result<CliPoll> {
+    let row =
+        sqlx::query("SELECT granted_token, expires_at FROM cli_logins WHERE device_code_hash = ?")
+            .bind(device_code_hash)
+            .fetch_optional(pool)
+            .await?;
+    let Some(row) = row else {
+        return Ok(CliPoll::Unknown);
+    };
+    let expires_at: String = row.get("expires_at");
+    if expires_at <= now() {
+        sqlx::query("DELETE FROM cli_logins WHERE device_code_hash = ?")
+            .bind(device_code_hash)
+            .execute(pool)
+            .await?;
+        return Ok(CliPoll::Expired);
+    }
+    let granted: Option<String> = row.get("granted_token");
+    match granted {
+        Some(token) if !token.is_empty() => {
+            sqlx::query("DELETE FROM cli_logins WHERE device_code_hash = ?")
+                .bind(device_code_hash)
+                .execute(pool)
+                .await?;
+            Ok(CliPoll::Granted(token))
+        }
+        _ => Ok(CliPoll::Pending),
+    }
+}
+
 pub async fn project_owned(pool: &SqlitePool, project_id: &str, owner_id: &str) -> Result<bool> {
     let row =
         sqlx::query("SELECT 1 AS ok FROM projects WHERE owner_id = ? AND (id = ? OR slug = ?)")

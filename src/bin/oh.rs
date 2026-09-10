@@ -32,17 +32,13 @@ async fn main() {
 async fn run() -> Result<()> {
     let mut args = std::env::args().skip(1).collect::<Vec<_>>();
     if args.is_empty() {
-        eprintln!(
-            "usage:\n  oh login <email> <password> [--url https://openhub.run]\n  oh login --token <token> [--url https://openhub.run]\n  oh login <token>\n  oh project create <name>\n  oh clone <project-id> [dir] [--blobless]\n  oh sync\n  oh merge [branch] [--into target_branch]"
-        );
+        print_usage();
         return Ok(());
     }
     let cmd = args.remove(0);
     match cmd.as_str() {
         "help" | "--help" | "-h" => {
-            eprintln!(
-                "usage:\n  oh login <email> <password> [--url https://openhub.run]\n  oh login --token <token> [--url https://openhub.run]\n  oh login <token>\n  oh project create <name>\n  oh clone <project-id> [dir] [--blobless]\n  oh sync\n  oh merge [branch] [--into target_branch]"
-            );
+            print_usage();
             Ok(())
         }
         "login" => login(args).await,
@@ -51,6 +47,71 @@ async fn run() -> Result<()> {
         "sync" => sync().await,
         "merge" => merge(args).await,
         other => bail!("unknown command {other}"),
+    }
+}
+
+fn print_usage() {
+    eprintln!(
+        "usage:\n  oh login [--url https://openhub.run]\n  oh login <email> <password> [--url https://openhub.run]\n  oh login --token <token> [--url https://openhub.run]\n  oh login <token>\n  oh project create <name>\n  oh clone <project-id> [dir] [--blobless]\n  oh sync\n  oh merge [branch] [--into target_branch]"
+    );
+}
+
+fn open_browser(url: &str) {
+    let _ = if cfg!(target_os = "macos") {
+        Command::new("open").arg(url).spawn()
+    } else if cfg!(target_os = "windows") {
+        Command::new("cmd").args(["/C", "start", url]).spawn()
+    } else {
+        Command::new("xdg-open").arg(url).spawn()
+    };
+}
+
+async fn browser_login(origin: &str) -> Result<String> {
+    let origin = origin.trim_end_matches('/');
+    let client = reqwest::Client::new();
+    let res = client
+        .post(format!("{origin}/api/v1/auth/cli/start"))
+        .send()
+        .await
+        .context("start browser login")?;
+    let status = res.status();
+    let body: Value = res.json().await.unwrap_or(Value::Null);
+    if !status.is_success() {
+        bail!("start login failed: {status} {body}");
+    }
+    let device_code = body["device_code"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("no device_code"))?
+        .to_string();
+    let uri = body["verification_uri"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("no verification_uri"))?
+        .to_string();
+    let expires_in = body["expires_in"].as_u64().unwrap_or(600);
+    println!("Open this URL to sign in:\n  {uri}");
+    open_browser(&uri);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(expires_in);
+    loop {
+        if std::time::Instant::now() > deadline {
+            bail!("login timed out; run oh login again");
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        let poll = client
+            .post(format!("{origin}/api/v1/auth/cli/poll"))
+            .json(&json!({ "device_code": device_code }))
+            .send()
+            .await
+            .context("poll login")?;
+        if !poll.status().is_success() {
+            continue;
+        }
+        let body: Value = poll.json().await.unwrap_or(Value::Null);
+        if body["status"] == "ok" {
+            return body["token"]
+                .as_str()
+                .map(str::to_string)
+                .ok_or_else(|| anyhow::anyhow!("no token"));
+        }
     }
 }
 
@@ -97,7 +158,7 @@ async fn login(args: Vec<String>) -> Result<()> {
             .ok_or_else(|| anyhow::anyhow!("no token in response"))?
             .to_string()
     } else {
-        bail!("oh login <email> <password> | oh login --token <TOKEN> [--url ORIGIN]");
+        browser_login(&url).await?
     };
 
     // Verify token validity against /api/v1/me

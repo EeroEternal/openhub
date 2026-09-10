@@ -194,4 +194,10 @@ export const zh: Record<string, string> = {
   "common.language": "语言",
   "common.copied": "已复制",
   "common.selectPlaceholder": "请选择",
+  "cli.title": "授权命令行",
+  "cli.body": "这台机器上的 oh 请求以你的账号登录。只在你自己执行了 oh login 时批准。",
+  "cli.authorize": "批准",
+  "cli.done": "已登录。可以关闭此页，回到终端。",
+  "cli.missingCode": "缺少登录码。请重新运行 oh login。",
+  "cli.console": "返回控制台",
 }

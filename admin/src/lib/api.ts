@@ -1,5 +1,13 @@
 const TOKEN_KEY = "openhub.token"
 
+/** In-app path from ?next=; rejects open redirects. */
+export function nextPath(fallback = "/"): string {
+  if (typeof window === "undefined") return fallback
+  const raw = new URLSearchParams(window.location.search).get("next") || fallback
+  if (!raw.startsWith("/") || raw.startsWith("//") || raw.includes("://")) return fallback
+  return raw
+}
+
 export function getToken(): string | null {
   try {
     return localStorage.getItem(TOKEN_KEY)
