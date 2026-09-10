@@ -223,7 +223,25 @@ where
             let headers = req.headers().clone();
             match auth::user_from_headers(&hub, &headers).await {
                 Ok(user) => match store::project_owned(&hub.db, &project_id, &user.id).await {
-                    Ok(true) => inner.call(req).await,
+                    Ok(true) => {
+                        let repo = hub.gitcell.data_dir.join(&project_id);
+                        if !repo.exists() {
+                            if let Err(err) = gitcell::git_ops::init(&repo) {
+                                tracing::warn!(
+                                    project_id,
+                                    error = %err,
+                                    "missing git tree; init failed"
+                                );
+                            } else if let Err(err) = crate::git_http::ensure_http_enabled(&repo) {
+                                tracing::warn!(
+                                    project_id,
+                                    error = %err,
+                                    "enable git http failed"
+                                );
+                            }
+                        }
+                        inner.call(req).await
+                    }
                     Ok(false) => Ok(Error::NotFound("project not found".into()).into_response()),
                     Err(e) => Ok(e.into_response()),
                 },

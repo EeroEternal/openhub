@@ -618,7 +618,9 @@ export default function ProjectPage() {
     if (!id) return
     const p = await api<Project>(`/api/v1/projects/${id}`)
     setProject(p)
-    const tr = await api<{ tree: TreeEntry[] }>(`/api/v1/repos/${id}/tree`)
+    const tr = await api<{ tree: TreeEntry[] }>(`/api/v1/repos/${id}/tree`).catch(() => ({
+      tree: [] as TreeEntry[],
+    }))
     const entries = tr.tree ?? []
     setTree(entries)
     const files = entries.filter((e) => e.kind === "file")
