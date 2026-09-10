@@ -483,6 +483,23 @@ pub async fn find_project_by_username_and_slug(
     Ok(row.as_ref().map(row_to_project))
 }
 
+pub async fn delete_project(
+    pool: &SqlitePool,
+    owner_id: &str,
+    project_id: &str,
+) -> Result<Option<Project>> {
+    let project = find_project_by_id_or_slug(pool, owner_id, project_id).await?;
+    let Some(project) = project else {
+        return Ok(None);
+    };
+    sqlx::query("DELETE FROM projects WHERE id = ? AND owner_id = ?")
+        .bind(&project.id)
+        .bind(owner_id)
+        .execute(pool)
+        .await?;
+    Ok(Some(project))
+}
+
 pub async fn project_owned(pool: &SqlitePool, project_id: &str, owner_id: &str) -> Result<bool> {
     let row =
         sqlx::query("SELECT 1 AS ok FROM projects WHERE owner_id = ? AND (id = ? OR slug = ?)")

@@ -170,6 +170,43 @@ pub async fn get_user_repo(
     })))
 }
 
+pub async fn delete(
+    State(hub): State<HubState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Value>> {
+    let user = auth::user_from_headers(&hub, &headers).await?;
+    let project = store::delete_project(&hub.db, &user.id, &id)
+        .await?
+        .ok_or_else(|| Error::NotFound("project not found".into()))?;
+
+    let repo = hub.gitcell.data_dir.join(&project.id);
+    if repo.exists()
+        && let Err(err) = std::fs::remove_dir_all(&repo)
+    {
+        tracing::warn!(path = %repo.display(), error = %err, "failed to remove project git tree");
+    }
+    for name in [
+        format!("{}.db", project.id),
+        format!("{}.db-wal", project.id),
+        format!("{}.db-shm", project.id),
+    ] {
+        let path = hub.cells_dir.join(name);
+        if path.exists() {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+    let lease = hub
+        .cells_storage_dir
+        .join("leases")
+        .join(format!("{}.lease", project.id));
+    if lease.exists() {
+        let _ = std::fs::remove_file(&lease);
+    }
+
+    Ok(Json(json!({ "ok": true, "id": project.id })))
+}
+
 fn slug_from_name(name: &str) -> Result<String> {
     let slug: String = name
         .chars()

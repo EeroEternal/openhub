@@ -36,6 +36,8 @@ async fn main() -> Result<()> {
         db,
         mail: Mailer::from_env(),
         public_origin: config.public_origin.clone(),
+        cells_dir: config.cells_dir.clone(),
+        cells_storage_dir: config.cells_storage_dir.clone(),
     };
     let app = server::create_router_with_static(hub, static_dir);
 

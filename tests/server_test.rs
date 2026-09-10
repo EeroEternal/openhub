@@ -26,6 +26,8 @@ async fn test_hub() -> (HubState, tempfile::TempDir) {
         db,
         mail: Mailer::log(),
         public_origin: "http://127.0.0.1:8080".into(),
+        cells_dir: tmp.path().join("cells"),
+        cells_storage_dir: tmp.path().join("cells-storage"),
     };
     (hub, tmp)
 }
@@ -397,6 +399,61 @@ async fn forgot_password_resets_and_revokes_old_login() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{login}");
+}
+
+#[tokio::test]
+async fn delete_project_removes_it() {
+    let (hub, _tmp) = test_hub().await;
+    let app = create_router(hub);
+
+    let (status, body) = json_request(
+        app.clone(),
+        "POST",
+        "/api/v1/auth/register",
+        None,
+        Some(serde_json::json!({
+            "email": "owner@example.com",
+            "password": "password1"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let token = body["token"].as_str().unwrap();
+
+    let (status, project) = json_request(
+        app.clone(),
+        "POST",
+        "/api/v1/projects",
+        Some(token),
+        Some(serde_json::json!({ "name": "To Delete" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{project}");
+    let id = project["id"].as_str().unwrap();
+
+    let (status, deleted) = json_request(
+        app.clone(),
+        "DELETE",
+        &format!("/api/v1/projects/{id}"),
+        Some(token),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{deleted}");
+
+    let (status, _) = json_request(
+        app.clone(),
+        "GET",
+        &format!("/api/v1/projects/{id}"),
+        Some(token),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let (status, list) = json_request(app, "GET", "/api/v1/projects", Some(token), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(list["projects"].as_array().map(|a| a.len()), Some(0));
 }
 
 async fn raw_request(app: axum::Router, uri: &str) -> (StatusCode, Vec<u8>) {

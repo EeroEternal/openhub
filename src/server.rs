@@ -33,6 +33,8 @@ pub struct HubState {
     pub db: SqlitePool,
     pub mail: Mailer,
     pub public_origin: String,
+    pub cells_dir: PathBuf,
+    pub cells_storage_dir: PathBuf,
 }
 
 pub fn create_router(hub: HubState) -> Router {
@@ -70,7 +72,10 @@ pub fn create_router_with_static(hub: HubState, static_dir: Option<PathBuf>) -> 
             get(projects::list).post(projects::create),
         )
         .route("/api/v1/projects/check-slug", get(projects::check_slug))
-        .route("/api/v1/projects/{id}", get(projects::get))
+        .route(
+            "/api/v1/projects/{id}",
+            get(projects::get).delete(projects::delete),
+        )
         .route(
             "/api/v1/projects/{username}/{slug}",
             get(projects::get_user_repo),

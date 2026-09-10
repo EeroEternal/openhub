@@ -53,6 +53,7 @@ Credentials are stored in `~/.openhub/credentials` (mode 0600).
 | POST | `/api/v1/projects` | `{ "name", "slug?", "description?", "init_readme?" }` |
 | GET | `/api/v1/projects` | list mine |
 | GET | `/api/v1/projects/{id}` | metadata |
+| DELETE | `/api/v1/projects/{id}` | owner-only; removes git tree and session files |
 | GET | `/api/v1/projects/{username}/{slug}` | same, by owner/slug |
 | GET | `/api/v1/projects/check-slug?slug=` | availability |
 

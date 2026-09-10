@@ -1,6 +1,6 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useMemo, useState, type FormEvent } from "react"
-import { useParams, useSearchParams } from "react-router-dom"
+import { useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { toast } from "sonner"
 import { PageContainer } from "@/components/layout/page-container"
 import { PageHeader } from "@/components/layout/page-header"
@@ -49,7 +49,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { ConfirmAlertDialog } from "@/components/ui/confirm-alert-dialog"
 import { api, getToken } from "@/lib/api"
+import { useProjects } from "@/lib/projects"
 import { t, useI18n } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
 
@@ -555,6 +557,8 @@ function SessionTurnCard({
 
 export default function ProjectPage() {
   useI18n()
+  const navigate = useNavigate()
+  const { reload } = useProjects()
   const { id } = useParams()
   const [params, setParams] = useSearchParams()
   const rawTab = params.get("tab")
@@ -580,6 +584,7 @@ export default function ProjectPage() {
   const [pending, setPending] = useState(false)
   const [sessionEvents, setSessionEvents] = useState<SessionEvent[]>([])
   const [loadingSessions, setLoadingSessions] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
 
   function toggleDir(dirPath: string) {
     setExpandedDirs((prev) => {
@@ -925,6 +930,22 @@ export default function ProjectPage() {
       setShowOpen(true)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("common.error"))
+    }
+  }
+
+  async function onDeleteProject() {
+    if (!id) return
+    setPending(true)
+    try {
+      await api(`/api/v1/projects/${id}`, { method: "DELETE" })
+      toast.success(t("project.deleted"))
+      setDeleteOpen(false)
+      await reload()
+      navigate("/", { replace: true })
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("common.error"))
+    } finally {
+      setPending(false)
     }
   }
 
@@ -1335,6 +1356,17 @@ export default function ProjectPage() {
                 </div>
               </div>
             </section>
+            <section className="py-4">
+              <h2 className="mb-3 text-sm font-medium">{t("project.delete")}</h2>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={pending}
+                onClick={() => setDeleteOpen(true)}
+              >
+                {t("project.delete")}
+              </Button>
+            </section>
           </div>
         ) : null}
 
@@ -1439,6 +1471,17 @@ export default function ProjectPage() {
             </pre>
           </DialogContent>
         </Dialog>
+
+        <ConfirmAlertDialog
+          open={deleteOpen}
+          onOpenChange={setDeleteOpen}
+          title={t("project.delete")}
+          description={t("project.deleteConfirm")}
+          cancelText={t("projects.cancel")}
+          confirmText={t("project.delete")}
+          confirmClassName="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+          onConfirm={() => void onDeleteProject()}
+        />
       </PageContainer>
     </PageShell>
   )
