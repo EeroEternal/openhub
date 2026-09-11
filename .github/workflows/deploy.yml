@@ -14,20 +14,18 @@ permissions:
   contents: read
 
 jobs:
-  deploy:
-    name: Build and rsync to pararouter-hk
-    runs-on: ubuntu-22.04
-    timeout-minutes: 40
+  rev:
+    name: Resolve SHA
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
     if: >
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.head_branch == 'main')
-    env:
-      CARGO_TERM_COLOR: always
-      CARGO_INCREMENTAL: "0"
+    outputs:
+      sha: ${{ steps.rev.outputs.sha }}
     steps:
-      - name: Resolve SHA
-        id: rev
+      - id: rev
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" = "workflow_run" ]; then
@@ -37,9 +35,40 @@ jobs:
           fi
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
+  build-oh-macos:
+    name: Build oh (darwin-arm64)
+    needs: rev
+    runs-on: macos-14
+    timeout-minutes: 30
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: "0"
+    steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ steps.rev.outputs.sha }}
+          ref: ${{ needs.rev.outputs.sha }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-rust
+      - run: cargo build --release --bin oh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: oh-darwin-arm64
+          path: target/release/oh
+
+  deploy:
+    name: Build and rsync to pararouter-hk
+    needs: [rev, build-oh-macos]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.rev.outputs.sha }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -49,8 +78,8 @@ jobs:
         with:
           shared-key: ci-rust
 
-      - name: Build openhub binary
-        run: cargo build --release --bin openhub
+      - name: Build openhub and oh (linux)
+        run: cargo build --release --bin openhub --bin oh
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -64,6 +93,19 @@ jobs:
         run: |
           npm ci
           npm run build
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: oh-darwin-arm64
+          path: /tmp/oh-darwin-arm64
+
+      - name: Stage CLI binaries into www
+        run: |
+          set -euo pipefail
+          mkdir -p admin/dist/dist
+          cp target/release/oh admin/dist/dist/oh-linux-x86_64
+          cp /tmp/oh-darwin-arm64/oh admin/dist/dist/oh-darwin-arm64
+          chmod 755 admin/dist/dist/oh-linux-x86_64 admin/dist/dist/oh-darwin-arm64
 
       - uses: webfactory/ssh-agent@v0.9.1
         with:
@@ -84,6 +126,7 @@ jobs:
           set -euo pipefail
           test -x /tmp/openhub.new
           test -f /tmp/openhub-www.new/index.html
+          test -f /tmp/openhub-www.new/dist/oh-darwin-arm64
           sudo systemctl stop openhub
           install -d /home/xinference/src/openhub/target/release
           install -m 755 /tmp/openhub.new /home/xinference/src/openhub/target/release/openhub

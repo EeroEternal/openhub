@@ -59,6 +59,12 @@ else
   exit 1
 fi
 
+if head -c 64 "$TMP_BIN" | grep -q '<!DOCTYPE html>\|<!doctype html>'; then
+  echo "Error: ${BIN_URL} returned HTML, not a binary."
+  echo "Build from source: cargo install --path . --bin oh"
+  exit 1
+fi
+
 chmod +x "$TMP_BIN"
 
 if [ -w "$INSTALL_DIR" ]; then
