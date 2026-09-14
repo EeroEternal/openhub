@@ -177,8 +177,9 @@ Not a second daemon requirement. Optional local gitcell for offline; v1 CLI can:
 
 ```text
 oh login
-oh project create my-app
-oh clone <project>          # git clone + initial event pull
+oh project create my-app    # inside a git repo: also writes .openhub/config.json
+oh init <project>           # link cwd (already has code) to an existing project
+oh clone <project>          # empty dir: git clone + initial event pull
 oh sync                     # git + sessions
 oh status                   # git status + unsynced event count
 ```

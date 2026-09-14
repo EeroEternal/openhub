@@ -15,4 +15,5 @@ Product log for agents. Not git history.
 - Git Smart HTTP at `/git/{id}` and `/git/{username}/{repo}`.
 - Git bundle fallback at `/api/v1/projects/{id}/git/bundle`.
 - Agent session push/pull at `/api/v1/projects/{id}/events`.
-- CLI `oh`: `login`, `project create`, `clone`, `sync`, `merge`.
+- CLI `oh`: `login`, `project create`, `init`, `clone`, `sync`, `merge`.
+- `oh project create` inside a git repo writes `.openhub/config.json` (no hand-edited config). `oh init <id>` links cwd to an existing project.

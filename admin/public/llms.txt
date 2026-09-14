@@ -14,10 +14,15 @@ v1 is owner-only. There are no pull requests, issues, or anonymous push.
 
 ```
 curl -fsSL https://openhub.run/install.sh | sh
-oh login <email> <password>
+oh login
+# existing git repo (cwd): create links cwd, then sync
 oh project create my-app
-oh clone <project-id>
 oh sync
+# or link cwd to a project that already exists
+oh init <project-id>
+oh sync
+# empty directory: clone instead
+oh clone <project-id>
 ```
 
 Auth is email + password (or a personal access token prefixed `oh_`).

@@ -1203,6 +1203,11 @@ export default function ProjectPage() {
                         <span className="text-xs text-muted-foreground">{t("project.cliClone")}</span>
                         <CopyableCode text={`oh clone ${repoPath}`} />
                       </div>
+
+                      <div className="space-y-1">
+                        <span className="text-xs text-muted-foreground">{t("project.cliInit")}</span>
+                        <CopyableCode text={`oh init ${repoPath} && oh sync`} />
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1355,6 +1360,11 @@ export default function ProjectPage() {
                 <div className="space-y-1">
                   <span className="text-xs text-muted-foreground">{t("project.cliClone")}</span>
                   <CopyableCode text={`oh clone ${repoPath}`} />
+                </div>
+
+                <div className="space-y-1">
+                  <span className="text-xs text-muted-foreground">{t("project.cliInit")}</span>
+                  <CopyableCode text={`oh init ${repoPath} && oh sync`} />
                 </div>
               </div>
             </section>

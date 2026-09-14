@@ -43,6 +43,7 @@ async fn run() -> Result<()> {
         }
         "login" => login(args).await,
         "project" => project(args).await,
+        "init" => init_project(args).await,
         "clone" => clone_project(args).await,
         "sync" => sync().await,
         "merge" => merge(args).await,
@@ -52,7 +53,7 @@ async fn run() -> Result<()> {
 
 fn print_usage() {
     eprintln!(
-        "usage:\n  oh login [--url https://openhub.run]\n  oh login <email> <password> [--url https://openhub.run]\n  oh login --token <token> [--url https://openhub.run]\n  oh login <token>\n  oh project create <name>\n  oh clone <project-id> [dir] [--blobless]\n  oh sync\n  oh merge [branch] [--into target_branch]"
+        "usage:\n  oh login [--url https://openhub.run]\n  oh login <email> <password> [--url https://openhub.run]\n  oh login --token <token> [--url https://openhub.run]\n  oh login <token>\n  oh project create <name>\n  oh init <project-id>\n  oh clone <project-id> [dir] [--blobless]\n  oh sync\n  oh merge [branch] [--into target_branch]"
     );
 }
 
@@ -210,30 +211,57 @@ async fn project(args: Vec<String>) -> Result<()> {
     if !status.is_success() {
         bail!("create failed: {status} {body}");
     }
-    println!("{}", body["id"].as_str().unwrap_or(""));
+    let id = body["id"].as_str().unwrap_or("").to_string();
+    println!("{id}");
     println!("slug={}", body["slug"].as_str().unwrap_or(""));
+    let dir = std::env::current_dir()?;
+    if dir.join(".git").exists() && !repo_meta_path(&dir).exists() && !id.is_empty() {
+        write_repo_meta(
+            &dir,
+            &RepoMeta {
+                project_id: id,
+                origin: creds.origin,
+            },
+        )?;
+        println!("linked {}", dir.display());
+        println!("next: oh sync");
+    }
     Ok(())
 }
 
-async fn clone_project(args: Vec<String>) -> Result<()> {
-    let mut blobless = false;
-    let mut positional = Vec::new();
-    for arg in args {
-        if arg == "--blobless" || arg == "--lazy" {
-            blobless = true;
-        } else {
-            positional.push(arg);
-        }
+async fn init_project(args: Vec<String>) -> Result<()> {
+    if args.is_empty() {
+        bail!("oh init <project-id>");
     }
-    if positional.is_empty() {
-        bail!("oh clone <project-id> [dir] [--blobless]");
+    let identifier = &args[0];
+    let dir = std::env::current_dir()?;
+    if repo_meta_path(&dir).exists() {
+        let meta = load_repo_meta(&dir)?;
+        println!("already linked to {} ({})", meta.project_id, meta.origin);
+        return Ok(());
     }
-    let mut identifier = positional[0].clone();
-    let dir_arg = positional.get(1).cloned();
     let creds = load_creds()?;
     let client = client(&creds);
+    let (project_id, _) = resolve_project(&client, &creds, identifier).await?;
+    write_repo_meta(
+        &dir,
+        &RepoMeta {
+            project_id: project_id.clone(),
+            origin: creds.origin.clone(),
+        },
+    )?;
+    println!("linked {} -> {project_id}", dir.display());
+    println!("next: oh sync");
+    Ok(())
+}
 
-    // If identifier doesn't contain '/', query /api/v1/me to find current username or match directly
+/// Canonical project id plus the identifier to use in `/git/{…}` URLs.
+async fn resolve_project(
+    client: &reqwest::Client,
+    creds: &Creds,
+    identifier: &str,
+) -> Result<(String, String)> {
+    let mut identifier = identifier.to_string();
     if !identifier.contains('/') {
         let me_res = client
             .get(format!("{}/api/v1/me", creds.origin))
@@ -243,7 +271,6 @@ async fn clone_project(args: Vec<String>) -> Result<()> {
             if res.status().is_success() {
                 let body: Value = res.json().await.unwrap_or(Value::Null);
                 if let Some(username) = body["username"].as_str() {
-                    // Try to resolve as username/identifier first
                     let candidate = format!("{username}/{identifier}");
                     let check = client
                         .get(format!("{}/api/v1/projects/{candidate}", creds.origin))
@@ -259,15 +286,6 @@ async fn clone_project(args: Vec<String>) -> Result<()> {
         }
     }
 
-    let dir = PathBuf::from(dir_arg.unwrap_or_else(|| {
-        identifier
-            .split('/')
-            .next_back()
-            .unwrap_or(&identifier)
-            .to_string()
-    }));
-
-    // Resolve canonical project id from server (supports UUID, slug, or username/repo)
     let project_res = client
         .get(format!("{}/api/v1/projects/{identifier}", creds.origin))
         .send()
@@ -280,7 +298,6 @@ async fn clone_project(args: Vec<String>) -> Result<()> {
         _ => identifier.clone(),
     };
 
-    // If still looks like username/slug or slug, try finding it in /api/v1/projects list
     if project_id == identifier {
         let list_res = client
             .get(format!("{}/api/v1/projects", creds.origin))
@@ -309,6 +326,35 @@ async fn clone_project(args: Vec<String>) -> Result<()> {
             }
         }
     }
+    Ok((project_id, identifier))
+}
+
+async fn clone_project(args: Vec<String>) -> Result<()> {
+    let mut blobless = false;
+    let mut positional = Vec::new();
+    for arg in args {
+        if arg == "--blobless" || arg == "--lazy" {
+            blobless = true;
+        } else {
+            positional.push(arg);
+        }
+    }
+    if positional.is_empty() {
+        bail!("oh clone <project-id> [dir] [--blobless]");
+    }
+    let identifier_arg = positional[0].clone();
+    let dir_arg = positional.get(1).cloned();
+    let creds = load_creds()?;
+    let client = client(&creds);
+    let (project_id, identifier) = resolve_project(&client, &creds, &identifier_arg).await?;
+
+    let dir = PathBuf::from(dir_arg.unwrap_or_else(|| {
+        identifier
+            .split('/')
+            .next_back()
+            .unwrap_or(&identifier)
+            .to_string()
+    }));
 
     let git_url = format!("{}/git/{identifier}", creds.origin);
     let header = format!("http.extraHeader=Authorization: Bearer {}", creds.token);

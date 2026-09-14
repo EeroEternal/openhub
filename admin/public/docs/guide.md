@@ -60,7 +60,7 @@ Credentials are stored in `~/.openhub/credentials` (mode 0600).
 | GET | `/api/v1/projects/{username}/{slug}` | same, by owner/slug |
 | GET | `/api/v1/projects/check-slug?slug=` | availability |
 
-CLI: `oh project create <name>`.
+CLI: `oh project create <name>`. Run it inside an existing git repo and it writes `.openhub/config.json` in cwd. To attach cwd to a project that already exists: `oh init <project-id|slug>`, then `oh sync`. `oh clone` is only for an empty directory.
 
 ## Git
 

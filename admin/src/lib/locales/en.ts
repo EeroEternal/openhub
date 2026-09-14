@@ -142,6 +142,7 @@ export const en: Record<string, string> = {
   "project.cliInstall": "Install oh CLI",
   "project.cliLogin": "One-click login with token",
   "project.cliClone": "Clone and enter project",
+  "project.cliInit": "Link an existing local repo, then sync",
   "project.delete": "Delete project",
   "project.deleteConfirm": "This permanently removes the git repository and agent sessions. This cannot be undone.",
   "project.deleted": "Project deleted",
