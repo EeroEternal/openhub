@@ -9,7 +9,7 @@ use axum::http::{Request, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use axum::{
     Json, Router,
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
 };
 use gitcell::server::{AppState as GitcellState, api_router};
 use serde_json::{Value, json};
@@ -79,6 +79,14 @@ pub fn create_router_with_static(hub: HubState, static_dir: Option<PathBuf>) -> 
         .route(
             "/api/v1/projects/{id}",
             get(projects::get).delete(projects::delete),
+        )
+        .route(
+            "/api/v1/projects/{id}/github",
+            put(projects::put_github).delete(projects::delete_github),
+        )
+        .route(
+            "/api/v1/projects/{id}/github/push",
+            post(projects::push_github),
         )
         .route(
             "/api/v1/projects/{username}/{slug}",

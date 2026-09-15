@@ -547,6 +547,97 @@ async fn cli_browser_login_issues_session() {
 }
 
 #[tokio::test]
+async fn github_link_is_write_only_and_required_for_push() {
+    let (hub, _tmp) = test_hub().await;
+    let app = create_router(hub);
+
+    let (status, body) = json_request(
+        app.clone(),
+        "POST",
+        "/api/v1/auth/register",
+        None,
+        Some(serde_json::json!({
+            "email": "gh@example.com",
+            "password": "password1"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let token = body["token"].as_str().unwrap();
+
+    let (status, project) = json_request(
+        app.clone(),
+        "POST",
+        "/api/v1/projects",
+        Some(token),
+        Some(serde_json::json!({ "name": "Mirror" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{project}");
+    let id = project["id"].as_str().unwrap();
+
+    let (status, missing) = json_request(
+        app.clone(),
+        "PUT",
+        &format!("/api/v1/projects/{id}/github"),
+        Some(token),
+        Some(serde_json::json!({ "github_repo": "acme/mirror" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{missing}");
+
+    let (status, linked) = json_request(
+        app.clone(),
+        "PUT",
+        &format!("/api/v1/projects/{id}/github"),
+        Some(token),
+        Some(serde_json::json!({
+            "github_repo": "https://github.com/acme/mirror.git",
+            "github_token": "ghp_testtoken"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{linked}");
+    assert_eq!(linked["github_repo"], "acme/mirror");
+    assert_eq!(linked["github_token_set"], true);
+    assert!(linked.get("github_token").is_none());
+
+    let (status, got) = json_request(
+        app.clone(),
+        "GET",
+        &format!("/api/v1/projects/{id}"),
+        Some(token),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{got}");
+    assert_eq!(got["github_repo"], "acme/mirror");
+    assert_eq!(got["github_token_set"], true);
+    assert!(got.get("github_token").is_none());
+
+    let (status, unlinked) = json_request(
+        app.clone(),
+        "DELETE",
+        &format!("/api/v1/projects/{id}/github"),
+        Some(token),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{unlinked}");
+    assert_eq!(unlinked["github_token_set"], false);
+
+    let (status, push) = json_request(
+        app,
+        "POST",
+        &format!("/api/v1/projects/{id}/github/push"),
+        Some(token),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{push}");
+}
+
+#[tokio::test]
 async fn git_receive_pack_accepts_body_above_axum_default() {
     let (hub, _tmp) = test_hub().await;
     let app = create_router(hub);

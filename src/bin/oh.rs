@@ -1,6 +1,7 @@
 //! OpenHub CLI: login, project, clone, sync (git bundle + cellz events).
 #![allow(clippy::collapsible_if)]
 
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -19,6 +20,9 @@ struct Creds {
 struct RepoMeta {
     project_id: String,
     origin: String,
+    /// Optional GitHub repo to push after OpenHub (`oh github set`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    github: Option<String>,
 }
 
 #[tokio::main]
@@ -46,6 +50,7 @@ async fn run() -> Result<()> {
         "init" => init_project(args).await,
         "clone" => clone_project(args).await,
         "sync" => sync().await,
+        "github" => github_cmd(args),
         "merge" => merge(args).await,
         other => bail!("unknown command {other}"),
     }
@@ -53,7 +58,7 @@ async fn run() -> Result<()> {
 
 fn print_usage() {
     eprintln!(
-        "usage:\n  oh login [--url https://openhub.run]\n  oh login <email> <password> [--url https://openhub.run]\n  oh login --token <token> [--url https://openhub.run]\n  oh login <token>\n  oh project create <name>\n  oh init <project-id>\n  oh clone <project-id> [dir] [--blobless]\n  oh sync\n  oh merge [branch] [--into target_branch]"
+        "usage:\n  oh login [--url https://openhub.run]\n  oh login <email> <password> [--url https://openhub.run]\n  oh login --token <token> [--url https://openhub.run]\n  oh login <token>\n  oh project create <name>\n  oh init <project-id>\n  oh clone <project-id> [dir] [--blobless]\n  oh sync\n  oh github set [owner/repo|url]\n  oh github unset\n  oh merge [branch] [--into target_branch]"
     );
 }
 
@@ -200,9 +205,13 @@ async fn project(args: Vec<String>) -> Result<()> {
     let name = args[1..].join(" ");
     let creds = load_creds()?;
     let client = client(&creds);
+    let dir = std::env::current_dir()?;
+    // Existing git repo will push its own history; skip the server README commit
+    // so the first `oh sync` is a fast-forward, not unrelated-histories.
+    let linking = dir.join(".git").exists() && !repo_meta_path(&dir).exists();
     let res = client
         .post(format!("{}/api/v1/projects", creds.origin))
-        .json(&json!({ "name": name }))
+        .json(&json!({ "name": name, "init_readme": !linking }))
         .send()
         .await
         .context("create project")?;
@@ -214,13 +223,13 @@ async fn project(args: Vec<String>) -> Result<()> {
     let id = body["id"].as_str().unwrap_or("").to_string();
     println!("{id}");
     println!("slug={}", body["slug"].as_str().unwrap_or(""));
-    let dir = std::env::current_dir()?;
-    if dir.join(".git").exists() && !repo_meta_path(&dir).exists() && !id.is_empty() {
+    if linking && !id.is_empty() {
         write_repo_meta(
             &dir,
             &RepoMeta {
                 project_id: id,
                 origin: creds.origin,
+                github: None,
             },
         )?;
         println!("linked {}", dir.display());
@@ -248,11 +257,95 @@ async fn init_project(args: Vec<String>) -> Result<()> {
         &RepoMeta {
             project_id: project_id.clone(),
             origin: creds.origin.clone(),
+            github: None,
         },
     )?;
     println!("linked {} -> {project_id}", dir.display());
     println!("next: oh sync");
     Ok(())
+}
+
+fn github_cmd(args: Vec<String>) -> Result<()> {
+    let dir = std::env::current_dir()?;
+    let mut meta = load_repo_meta(&dir)?;
+    let sub = args.first().map(String::as_str).unwrap_or("status");
+    match sub {
+        "status" | "" => {
+            match meta.github.as_deref() {
+                Some(url) => println!("github {url}"),
+                None => println!("github not set (oh github set owner/repo)"),
+            }
+            Ok(())
+        }
+        "unset" | "clear" => {
+            meta.github = None;
+            write_repo_meta(&dir, &meta)?;
+            println!("github unset");
+            Ok(())
+        }
+        "set" => {
+            let raw = args.get(1).cloned().or_else(|| origin_if_github(&dir));
+            let Some(raw) = raw else {
+                bail!("oh github set <owner/repo|url>  (or set git remote origin to github.com)");
+            };
+            let url = parse_github_url(&raw)?;
+            meta.github = Some(url.clone());
+            write_repo_meta(&dir, &meta)?;
+            println!("github {url}");
+            println!("next: oh sync  (pushes OpenHub, then GitHub)");
+            Ok(())
+        }
+        other if !other.starts_with('-') && args.len() == 1 => {
+            let url = parse_github_url(other)?;
+            meta.github = Some(url.clone());
+            write_repo_meta(&dir, &meta)?;
+            println!("github {url}");
+            println!("next: oh sync  (pushes OpenHub, then GitHub)");
+            Ok(())
+        }
+        _ => bail!("oh github set [owner/repo|url] | oh github unset | oh github status"),
+    }
+}
+
+fn parse_github_url(raw: &str) -> Result<String> {
+    let s = raw.trim();
+    if s.is_empty() {
+        bail!("empty GitHub url");
+    }
+    if s.starts_with("git@github.com:") {
+        let mut url = s.to_string();
+        if !url.ends_with(".git") {
+            url.push_str(".git");
+        }
+        return Ok(url);
+    }
+    if let Some(rest) = s
+        .strip_prefix("https://github.com/")
+        .or_else(|| s.strip_prefix("http://github.com/"))
+        .or_else(|| s.strip_prefix("ssh://git@github.com/"))
+    {
+        let rest = rest.trim_matches('/');
+        let rest = rest.trim_end_matches(".git");
+        if rest.split('/').count() >= 2 {
+            return Ok(format!("https://github.com/{rest}.git"));
+        }
+    }
+    if let Some((owner, repo)) = s.split_once('/') {
+        let repo = repo.trim_end_matches(".git");
+        if !owner.is_empty() && !repo.is_empty() && !owner.contains(':') && !repo.contains('/') {
+            return Ok(format!("https://github.com/{owner}/{repo}.git"));
+        }
+    }
+    bail!("expected owner/repo or a github.com URL, got {raw}");
+}
+
+fn origin_if_github(dir: &Path) -> Option<String> {
+    let url = git_stdout(dir, &["remote", "get-url", "origin"])?;
+    if url.contains("github.com") {
+        parse_github_url(&url).ok()
+    } else {
+        None
+    }
 }
 
 /// Canonical project id plus the identifier to use in `/git/{…}` URLs.
@@ -375,6 +468,7 @@ async fn clone_project(args: Vec<String>) -> Result<()> {
             &RepoMeta {
                 project_id: project_id.clone(),
                 origin: creds.origin.clone(),
+                github: None,
             },
         )?;
         prefetch_critical_files(&dir);
@@ -415,6 +509,7 @@ async fn clone_project(args: Vec<String>) -> Result<()> {
         &RepoMeta {
             project_id: project_id.clone(),
             origin: creds.origin.clone(),
+            github: None,
         },
     )?;
     pull_events(&client, &creds, &project_id, &dir).await?;
@@ -444,46 +539,61 @@ async fn sync() -> Result<()> {
             .unwrap_or(false);
 
         if has_changes {
+            // Never commit OpenHub local cache (config + session events).
             let _ = Command::new("git")
-                .args(["add", "-A"])
+                .args(["add", "-A", "--", ".", ":!.openhub"])
                 .current_dir(&dir)
                 .status();
 
-            let timestamp = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
-            let commit_msg = format!("sync: snapshot {timestamp}");
-            let committed = Command::new("git")
-                .args(["commit", "-m", &commit_msg])
+            let staged = Command::new("git")
+                .args(["diff", "--cached", "--quiet"])
                 .current_dir(&dir)
                 .status()
                 .ok()
-                .map(|s| s.success())
+                .map(|s| !s.success())
                 .unwrap_or(false);
 
-            if committed {
-                println!("created snapshot commit: {commit_msg}");
+            if staged {
+                let timestamp = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+                let commit_msg = format!("sync: snapshot {timestamp}");
+                let committed = Command::new("git")
+                    .args(["commit", "-m", &commit_msg])
+                    .current_dir(&dir)
+                    .status()
+                    .ok()
+                    .map(|s| s.success())
+                    .unwrap_or(false);
+
+                if committed {
+                    println!("created snapshot commit: {commit_msg}");
+                }
             }
         }
 
         let git_url = format!("{}/git/{}", creds.origin, meta.project_id);
         let auth_header = format!("http.extraHeader=Authorization: Bearer {}", creds.token);
 
-        // 1. Push local branches to remote via Git Smart HTTP with auth header
-        let _ = Command::new("git")
-            .args(["-c", &auth_header, "push", &git_url, "HEAD:refs/heads/main"])
-            .current_dir(&dir)
-            .status();
+        let mut pushed = git_push_main(&dir, &auth_header, &git_url, false);
+        if !pushed && remote_is_openhub_placeholder(&dir, &auth_header, &git_url) {
+            println!("remote only has OpenHub placeholder commit; replacing with local history");
+            pushed = git_push_main(&dir, &auth_header, &git_url, true);
+        }
+        if !pushed {
+            bail!(
+                "git push failed. Remote has commits not in this repo; pull/merge first (oh merge), then oh sync."
+            );
+        }
 
-        // 2. Fetch any remote updates without forcing into currently checked out branch
-        let fetched = Command::new("git")
-            .args(["-c", &auth_header, "fetch", &git_url])
-            .current_dir(&dir)
-            .status()
-            .ok()
-            .map(|s| s.success())
-            .unwrap_or(false);
-
+        let fetched = git_ok(&dir, &["-c", &auth_header, "fetch", &git_url]);
         if fetched {
             prefetch_critical_files(&dir);
+        }
+
+        if let Some(gh) = meta.github.as_deref() {
+            println!("pushing to GitHub {gh}");
+            if !git_ok(&dir, &["push", gh, "HEAD:refs/heads/main"]) {
+                bail!("git push to GitHub failed (gh auth login, or SSH key for git@github.com)");
+            }
         }
     }
     push_local_events(&client, &creds, &meta.project_id, &dir).await?;
@@ -681,22 +791,31 @@ async fn push_local_events(
         all_events.extend(arr.clone());
     }
 
-    // 2. Discover and collect agent sessions (starting with .pi coding agent)
-    let pi_events = collect_pi_sessions(dir);
-    if !pi_events.is_empty() {
-        println!("found {} .pi session event(s) to sync", pi_events.len());
-        all_events.extend(pi_events);
-    }
+    let mut known_ids: HashSet<String> = all_events
+        .iter()
+        .filter_map(|e| e.get("id").and_then(|id| id.as_str()).map(str::to_string))
+        .collect();
 
-    if all_events.is_empty() {
+    // 2. Discover .pi sessions; skip ids already in local cache (already pushed).
+    let pi_events: Vec<Value> = collect_pi_sessions(dir)
+        .into_iter()
+        .filter(|e| {
+            e.get("id")
+                .and_then(|id| id.as_str())
+                .map(|id| known_ids.insert(id.to_string()))
+                .unwrap_or(true)
+        })
+        .collect();
+    if pi_events.is_empty() {
         return Ok(());
     }
+    println!("found {} new .pi session event(s) to sync", pi_events.len());
 
     let mut total_accepted = 0;
     let mut total_skipped = 0;
 
     // Send in chunks of 50-100 events to avoid HTTP 413 Payload Too Large
-    for chunk in all_events.chunks(100) {
+    for chunk in pi_events.chunks(100) {
         let res = client
             .post(format!(
                 "{}/api/v1/projects/{project_id}/events",
@@ -880,6 +999,58 @@ fn load_creds() -> Result<Creds> {
     let path = creds_path()?;
     let bytes = fs::read(&path).context("not logged in (oh login)")?;
     Ok(serde_json::from_slice(&bytes)?)
+}
+
+fn git_ok(dir: &Path, args: &[&str]) -> bool {
+    Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .status()
+        .ok()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+fn git_stdout(dir: &Path, args: &[&str]) -> Option<String> {
+    let out = Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+fn git_push_main(dir: &Path, auth_header: &str, git_url: &str, force: bool) -> bool {
+    let mut cmd = Command::new("git");
+    cmd.args(["-c", auth_header, "push"]);
+    if force {
+        cmd.arg("--force");
+    }
+    cmd.args([git_url, "HEAD:refs/heads/main"])
+        .current_dir(dir)
+        .status()
+        .ok()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// True when the remote is the single "Initial commit" README created at project create.
+fn remote_is_openhub_placeholder(dir: &Path, auth_header: &str, git_url: &str) -> bool {
+    if !git_ok(dir, &["-c", auth_header, "fetch", git_url]) {
+        return false;
+    }
+    if git_stdout(dir, &["merge-base", "HEAD", "FETCH_HEAD"]).is_some() {
+        return false;
+    }
+    let count = git_stdout(dir, &["rev-list", "--count", "FETCH_HEAD"]).unwrap_or_default();
+    if count != "1" {
+        return false;
+    }
+    git_stdout(dir, &["log", "-1", "--format=%s", "FETCH_HEAD"]).as_deref()
+        == Some("Initial commit")
 }
 
 fn repo_meta_path(dir: &Path) -> PathBuf {

@@ -8,6 +8,7 @@ use crate::auth;
 use crate::error::{Error, Result};
 use crate::server::HubState;
 use crate::store;
+use anyhow::anyhow;
 
 #[derive(Debug, Deserialize)]
 pub struct CheckSlugQuery {
@@ -116,16 +117,7 @@ pub async fn list(State(hub): State<HubState>, headers: HeaderMap) -> Result<Jso
     let projects = store::list_projects(&hub.db, &user.id).await?;
     let items: Vec<Value> = projects
         .into_iter()
-        .map(|p| {
-            json!({
-                "id": p.id,
-                "slug": p.slug,
-                "name": p.name,
-                "owner_username": user.username,
-                "full_name": format!("{}/{}", user.username, p.slug),
-                "created_at": p.created_at,
-            })
-        })
+        .map(|p| project_json(&p, &user.username))
         .collect();
     Ok(Json(json!({ "projects": items })))
 }
@@ -140,14 +132,7 @@ pub async fn get(
         .await?
         .ok_or_else(|| Error::NotFound("project not found".into()))?;
 
-    Ok(Json(json!({
-        "id": project.id,
-        "slug": project.slug,
-        "name": project.name,
-        "owner_username": user.username,
-        "full_name": format!("{}/{}", user.username, project.slug),
-        "created_at": project.created_at,
-    })))
+    Ok(Json(project_json(&project, &user.username)))
 }
 
 pub async fn get_user_repo(
@@ -160,14 +145,7 @@ pub async fn get_user_repo(
         .await?
         .ok_or_else(|| Error::NotFound("project not found".into()))?;
 
-    Ok(Json(json!({
-        "id": project.id,
-        "slug": project.slug,
-        "name": project.name,
-        "owner_username": user.username,
-        "full_name": format!("{}/{}", user.username, project.slug),
-        "created_at": project.created_at,
-    })))
+    Ok(Json(project_json(&project, &user.username)))
 }
 
 pub async fn delete(
@@ -205,6 +183,140 @@ pub async fn delete(
     }
 
     Ok(Json(json!({ "ok": true, "id": project.id })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GithubLinkRequest {
+    pub github_repo: String,
+    pub github_token: Option<String>,
+}
+
+pub async fn put_github(
+    State(hub): State<HubState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<GithubLinkRequest>,
+) -> Result<Json<Value>> {
+    let user = auth::user_from_headers(&hub, &headers).await?;
+    let repo = parse_github_repo(&body.github_repo)?;
+    let token = body
+        .github_token
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let project = store::find_project_by_id_or_slug(&hub.db, &user.id, &id)
+        .await?
+        .ok_or_else(|| Error::NotFound("project not found".into()))?;
+    if token.is_none() && !project.github_token_set {
+        return Err(Error::InvalidRequest(
+            "github_token is required the first time you link GitHub".into(),
+        ));
+    }
+    let updated = store::set_project_github(&hub.db, &user.id, &id, Some(&repo), token)
+        .await?
+        .ok_or_else(|| Error::NotFound("project not found".into()))?;
+    Ok(Json(project_json(&updated, &user.username)))
+}
+
+pub async fn delete_github(
+    State(hub): State<HubState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Value>> {
+    let user = auth::user_from_headers(&hub, &headers).await?;
+    let updated = store::set_project_github(&hub.db, &user.id, &id, None, None)
+        .await?
+        .ok_or_else(|| Error::NotFound("project not found".into()))?;
+    Ok(Json(project_json(&updated, &user.username)))
+}
+
+pub async fn push_github(
+    State(hub): State<HubState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Value>> {
+    let user = auth::user_from_headers(&hub, &headers).await?;
+    let project = store::find_project_by_id_or_slug(&hub.db, &user.id, &id)
+        .await?
+        .ok_or_else(|| Error::NotFound("project not found".into()))?;
+    let Some((repo, token)) =
+        store::get_project_github_secret(&hub.db, &user.id, &project.id).await?
+    else {
+        return Err(Error::InvalidRequest(
+            "link a GitHub repo and token first".into(),
+        ));
+    };
+    let git_dir = hub.gitcell.data_dir.join(&project.id);
+    if !git_dir.join(".git").exists() && !git_dir.join("HEAD").exists() {
+        return Err(Error::InvalidRequest(
+            "project has no git repository".into(),
+        ));
+    }
+    let url = format!("https://github.com/{repo}.git");
+    let header = format!("http.extraHeader=Authorization: Bearer {token}");
+    let output = tokio::task::spawn_blocking(move || {
+        std::process::Command::new("git")
+            .current_dir(&git_dir)
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .args(["-c", &header, "push", &url, "HEAD:refs/heads/main"])
+            .output()
+    })
+    .await
+    .map_err(|e| Error::Internal(anyhow!(e.to_string())))?
+    .map_err(|e| Error::Internal(anyhow!("git push: {e}")))?;
+    if !output.status.success() {
+        let mut err = String::from_utf8_lossy(&output.stderr).to_string();
+        if err.trim().is_empty() {
+            err = String::from_utf8_lossy(&output.stdout).to_string();
+        }
+        err = err.replace(&token, "***");
+        return Err(Error::InvalidRequest(format!(
+            "git push to GitHub failed: {}",
+            err.trim()
+        )));
+    }
+    Ok(Json(json!({ "ok": true, "github_repo": repo })))
+}
+
+fn project_json(p: &store::Project, username: &str) -> Value {
+    json!({
+        "id": p.id,
+        "slug": p.slug,
+        "name": p.name,
+        "owner_username": username,
+        "full_name": format!("{}/{}", username, p.slug),
+        "created_at": p.created_at,
+        "github_repo": p.github_repo,
+        "github_token_set": p.github_token_set,
+    })
+}
+
+fn parse_github_repo(raw: &str) -> Result<String> {
+    let s = raw.trim();
+    let s = s
+        .trim_start_matches("https://github.com/")
+        .trim_start_matches("http://github.com/")
+        .trim_start_matches("git@github.com:")
+        .trim_end_matches('/')
+        .trim_end_matches(".git");
+    let mut parts = s.split('/');
+    let owner = parts.next().unwrap_or("");
+    let repo = parts.next().unwrap_or("");
+    if owner.is_empty()
+        || repo.is_empty()
+        || parts.next().is_some()
+        || !owner
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        || !repo
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+    {
+        return Err(Error::InvalidRequest(
+            "github_repo must be owner/repo".into(),
+        ));
+    }
+    Ok(format!("{owner}/{repo}"))
 }
 
 fn slug_from_name(name: &str) -> Result<String> {
