@@ -27,7 +27,7 @@ This document serves as the **high-density, lightweight entry point (attention s
 | Writing design docs in `docs/` / DDL / Mermaid | skill [`verify-design-doc`](.agents/skills/verify-design-doc/SKILL.md) |
 | Release / tagging / production deployment | skill [`release`](.agents/skills/release/SKILL.md) |
 | Code review / PR audit / acceptance verification | skill [`review`](.agents/skills/review/SKILL.md) (Independent read-only context) |
-| CI pipelines / concurrency / test sharding / caching | skill [`ci-concurrency-optimization`](.agents/skills/ci-concurrency-optimization/SKILL.md) |
+| Local CI (`scripts/ci_local.sh`) / change scopes | skill [`ci-local-runner`](.agents/skills/ci-local-runner/SKILL.md) |
 | Autonomous agent loops / cron tasks | [`loop-charter.md`](docs/ai/agents/loop-charter.md) |
 | `tokio::spawn` / daemons / script modifications / exit codes | [`engineering.md`](docs/ai/agents/engineering.md) |
 | Commit message conventions | [`commit-style.md`](docs/ai/agents/commit-style.md) |
@@ -44,7 +44,7 @@ This document serves as the **high-density, lightweight entry point (attention s
 7. **Sorting & Search Clarity**: Entity sorting options must explicitly indicate direction (e.g., "Created (New → Old)"); search placeholder text must truthfully state searchable fields.
 8. **SQL portability (SQLite now, Postgres later)**: Schema and queries must run on both. TEXT ids, RFC3339 timestamps, no `JSONB` / `ARRAY` / `ILIKE` / SQLite `PRAGMA` in `migrations/`. All SQL lives in `src/store.rs` (bind style `?` is sqlite-only — do not scatter raw SQL). Do not use sqlite-only types (`INTEGER PRIMARY KEY AUTOINCREMENT` as the public id). `RETURNING` is allowed.
 9. **Release Promoter Process**: Tagging and releasing must follow skill [`release`](.agents/skills/release/SKILL.md) (full local gate re-run → multi-point check → human approval hard stop → deployment verification).
-10. **Pre-push Local Quality Gate**: Never use CI as a local sandbox; run full local quality gates (fmt, clippy, tests, admin tsc/build) via skill [`pre-push-local-gates`](.agents/skills/pre-push-local-gates/SKILL.md) before pushing.
+10. **Pre-push Local Quality Gate**: Never treat GitHub as a sandbox; run `scripts/ci_local.sh` (skill [`pre-push-local-gates`](.agents/skills/pre-push-local-gates/SKILL.md)) before pushing.
 
 ## Skills Index
 
@@ -61,4 +61,4 @@ Authoritative skills are located under `.agents/skills/`.
 - [`release`](.agents/skills/release/SKILL.md)
 - [`review`](.agents/skills/review/SKILL.md)
 - [`api-key-lifecycle-security`](.agents/skills/api-key-lifecycle-security/SKILL.md)
-- [`ci-concurrency-optimization`](.agents/skills/ci-concurrency-optimization/SKILL.md)
+- [`ci-local-runner`](.agents/skills/ci-local-runner/SKILL.md)

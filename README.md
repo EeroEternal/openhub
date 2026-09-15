@@ -54,12 +54,11 @@ Working trees: `$OPENHUB_DATA_DIR/<repo>` (default `./data/repos/<repo>`). Same 
 
 ## Deploy
 
-[`deploy/README.md`](deploy/README.md) — push to `main` runs CI then GitHub Actions rsyncs the binary and Admin UI to the GCP VM and restarts `openhub.service`.
+[`deploy/README.md`](deploy/README.md) — run `scripts/ci_local.sh` locally, then push to `main` (GitHub Actions rsyncs the binary and Admin UI to the GCP VM and restarts `openhub.service`).
 
 ## Development
 
 ```bash
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test
+scripts/ci_local.sh          # change-aware local CI (fmt/clippy/tests + admin)
+scripts/ci_local.sh --full   # full matrix
 ```

@@ -23,13 +23,8 @@ description: 发版（打 tag）完整 promoter 流程：本地门禁全量重�
 # 确保无未提交脏文件
 git status
 
-# 跑满门禁
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test --workspace
-
-# 前端构建验证 (如适用)
-cd admin && npm run build && cd ..
+# 跑满本地 CI（见 skill ci-local-runner）
+scripts/ci_local.sh --full
 ```
 
 ### 第 2 步：发版三查 (Three-Point Verification)

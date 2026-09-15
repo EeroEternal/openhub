@@ -2,7 +2,7 @@
 
 Public name: **openhub.run**. Origin VM: **pararouter-hk** (`asia-east2-b`, e2-medium). Cloudflare is DNS + TLS proxy only.
 
-Push to `main` runs CI, then [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) builds the Linux binary and Admin UI on GitHub Actions, rsyncs them over SSH, and restarts `openhub.service`. Data under `/home/xinference/openhub-data` is not replaced.
+Run [`scripts/ci_local.sh`](../scripts/ci_local.sh) locally first (GitHub Actions no longer runs the test matrix). Push to `main` then triggers [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml), which builds the Linux binary and Admin UI, rsyncs them over SSH, and restarts `openhub.service`. Data under `/home/xinference/openhub-data` is not replaced.
 
 ## What runs on the VM
 

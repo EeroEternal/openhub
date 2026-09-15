@@ -1,6 +1,7 @@
 /target
 /data
 Cargo.lock
+artifacts/
 **/*.rs.bk
 *.orig
 .DS_Store
