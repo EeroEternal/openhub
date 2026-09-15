@@ -181,6 +181,7 @@ oh project create my-app    # inside a git repo: also writes .openhub/config.jso
 oh init <project>           # link cwd (already has code) to an existing project
 oh clone <project>          # empty dir: git clone + initial event pull
 oh sync                     # git + sessions; also git push GitHub if `oh github set`
+                            # also honors root `.openhubignore` (gitignore syntax)
 oh github set [owner/repo]  # optional mirror to GitHub (laptop credentials)
 oh status                   # git status + unsynced event count
 ```

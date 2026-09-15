@@ -104,6 +104,15 @@ POST /api/v1/projects/{id}/events
 
 The `{username}/{slug}` path works the same. `oh sync` = git push to OpenHub + event pull + event push.
 
+`oh sync` snapshot add honors `.gitignore` and a root `.openhubignore` (same syntax as `.gitignore`). `.openhub/` is always excluded. Patterns apply to untracked files; already-tracked paths stay in git until `git rm --cached`.
+
+```
+# .openhubignore
+secret.env
+build/
+*.log
+```
+
 Optional GitHub mirror (laptop git credentials, not stored on OpenHub):
 
 ```
