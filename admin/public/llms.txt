@@ -23,6 +23,9 @@ oh init <project-id>
 oh sync
 # empty directory: clone instead
 oh clone <project-id>
+# optional: also push GitHub after OpenHub
+oh github set owner/repo
+oh sync
 ```
 
 Auth is email + password (or a personal access token prefixed `oh_`).

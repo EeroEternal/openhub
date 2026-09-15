@@ -4,12 +4,12 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use axum::body::Body;
-use axum::extract::State;
+use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{Request, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use axum::{
     Json, Router,
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
 };
 use gitcell::server::{AppState as GitcellState, api_router};
 use serde_json::{Value, json};
@@ -81,6 +81,14 @@ pub fn create_router_with_static(hub: HubState, static_dir: Option<PathBuf>) -> 
             get(projects::get).delete(projects::delete),
         )
         .route(
+            "/api/v1/projects/{id}/github",
+            put(projects::put_github).delete(projects::delete_github),
+        )
+        .route(
+            "/api/v1/projects/{id}/github/push",
+            post(projects::push_github),
+        )
+        .route(
             "/api/v1/projects/{username}/{slug}",
             get(projects::get_user_repo),
         )
@@ -97,19 +105,27 @@ pub fn create_router_with_static(hub: HubState, static_dir: Option<PathBuf>) -> 
             get(git_sync::download).put(git_sync::upload),
         )
         .route("/git/{id}/info/refs", get(git_http::info_refs))
-        .route("/git/{id}/git-upload-pack", post(git_http::upload_pack))
-        .route("/git/{id}/git-receive-pack", post(git_http::receive_pack))
+        .route(
+            "/git/{id}/git-upload-pack",
+            post(git_http::upload_pack).layer(DefaultBodyLimit::max(git_http::MAX_PACK_BODY)),
+        )
+        .route(
+            "/git/{id}/git-receive-pack",
+            post(git_http::receive_pack).layer(DefaultBodyLimit::max(git_http::MAX_PACK_BODY)),
+        )
         .route(
             "/git/{username}/{repo}/info/refs",
             get(git_http::info_refs_user_repo),
         )
         .route(
             "/git/{username}/{repo}/git-upload-pack",
-            post(git_http::upload_pack_user_repo),
+            post(git_http::upload_pack_user_repo)
+                .layer(DefaultBodyLimit::max(git_http::MAX_PACK_BODY)),
         )
         .route(
             "/git/{username}/{repo}/git-receive-pack",
-            post(git_http::receive_pack_user_repo),
+            post(git_http::receive_pack_user_repo)
+                .layer(DefaultBodyLimit::max(git_http::MAX_PACK_BODY)),
         )
         .with_state(hub);
 

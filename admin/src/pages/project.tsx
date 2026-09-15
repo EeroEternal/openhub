@@ -56,7 +56,15 @@ import { t, useI18n } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
 
 type Tab = "code" | "commits" | "sessions" | "settings"
-type Project = { id: string; name: string; slug: string; owner_username?: string; full_name?: string }
+type Project = {
+  id: string
+  name: string
+  slug: string
+  owner_username?: string
+  full_name?: string
+  github_repo?: string | null
+  github_token_set?: boolean
+}
 type TreeEntry = { path: string; kind: string; size?: number }
 type CommitRow = { sha: string; date: string; message: string }
 type SessionEvent = {
@@ -585,6 +593,10 @@ export default function ProjectPage() {
   const [sessionEvents, setSessionEvents] = useState<SessionEvent[]>([])
   const [loadingSessions, setLoadingSessions] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [githubRepo, setGithubRepo] = useState("")
+  const [githubToken, setGithubToken] = useState("")
+  const [githubSaving, setGithubSaving] = useState(false)
+  const [githubPushing, setGithubPushing] = useState(false)
 
   function toggleDir(dirPath: string) {
     setExpandedDirs((prev) => {
@@ -618,6 +630,8 @@ export default function ProjectPage() {
     if (!id) return
     const p = await api<Project>(`/api/v1/projects/${id}`)
     setProject(p)
+    setGithubRepo(p.github_repo ?? "")
+    setGithubToken("")
     const tr = await api<{ tree: TreeEntry[] }>(`/api/v1/repos/${id}/tree`).catch(() => ({
       tree: [] as TreeEntry[],
     }))
@@ -932,6 +946,60 @@ export default function ProjectPage() {
       setShowOpen(true)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("common.error"))
+    }
+  }
+
+  async function saveGithub() {
+    if (!id) return
+    setGithubSaving(true)
+    try {
+      const body: { github_repo: string; github_token?: string } = {
+        github_repo: githubRepo.trim(),
+      }
+      if (githubToken.trim()) body.github_token = githubToken.trim()
+      const p = await api<Project>(`/api/v1/projects/${id}/github`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      })
+      setProject(p)
+      setGithubRepo(p.github_repo ?? "")
+      setGithubToken("")
+      toast.success(t("project.githubSaved"))
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("common.error"))
+    } finally {
+      setGithubSaving(false)
+    }
+  }
+
+  async function unlinkGithub() {
+    if (!id) return
+    setGithubSaving(true)
+    try {
+      const p = await api<Project>(`/api/v1/projects/${id}/github`, {
+        method: "DELETE",
+      })
+      setProject(p)
+      setGithubRepo("")
+      setGithubToken("")
+      toast.success(t("project.githubUnlinked"))
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("common.error"))
+    } finally {
+      setGithubSaving(false)
+    }
+  }
+
+  async function pushGithub() {
+    if (!id) return
+    setGithubPushing(true)
+    try {
+      await api(`/api/v1/projects/${id}/github/push`, { method: "POST" })
+      toast.success(t("project.githubPushed"))
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("common.error"))
+    } finally {
+      setGithubPushing(false)
     }
   }
 
@@ -1338,6 +1406,64 @@ export default function ProjectPage() {
                 <div className="flex items-start gap-2 pt-1">
                   <span className="w-28 shrink-0 text-sm">{t("project.pushAuth")}</span>
                   <p className="text-meta-sm text-muted-foreground">{t("project.pushAuthValue")}</p>
+                </div>
+              </div>
+            </section>
+            <section className="py-4">
+              <h2 className="mb-3 text-sm font-medium">{t("project.github")}</h2>
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <Label htmlFor="github-repo">{t("project.githubRepo")}</Label>
+                  <Input
+                    id="github-repo"
+                    value={githubRepo}
+                    onChange={(e) => setGithubRepo(e.target.value)}
+                    placeholder={t("project.githubRepoPlaceholder")}
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="github-token">{t("project.githubToken")}</Label>
+                  <Input
+                    id="github-token"
+                    type="password"
+                    value={githubToken}
+                    onChange={(e) => setGithubToken(e.target.value)}
+                    placeholder={
+                      project?.github_token_set
+                        ? t("project.githubTokenKeep")
+                        : t("project.githubTokenPlaceholder")
+                    }
+                    autoComplete="off"
+                  />
+                </div>
+                <p className="text-meta-sm text-muted-foreground">{t("project.githubHelp")}</p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={githubSaving || !githubRepo.trim()}
+                    onClick={() => void saveGithub()}
+                  >
+                    {t("project.githubSave")}
+                  </Button>
+                  <Button
+                    type="button"
+                    disabled={githubPushing || !project?.github_token_set}
+                    onClick={() => void pushGithub()}
+                  >
+                    {t("project.githubPush")}
+                  </Button>
+                  {project?.github_repo ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      disabled={githubSaving}
+                      onClick={() => void unlinkGithub()}
+                    >
+                      {t("project.githubUnlink")}
+                    </Button>
+                  ) : null}
                 </div>
               </div>
             </section>

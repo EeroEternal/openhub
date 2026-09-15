@@ -2,6 +2,7 @@
 /data
 Cargo.lock
 artifacts/
+.openhub/
 **/*.rs.bk
 *.orig
 .DS_Store

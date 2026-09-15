@@ -23,6 +23,8 @@ pub struct Project {
     pub slug: String,
     pub name: String,
     pub created_at: String,
+    pub github_repo: Option<String>,
+    pub github_token_set: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -425,12 +427,16 @@ pub async fn insert_project(
         slug: slug.to_string(),
         name: name.to_string(),
         created_at: ts,
+        github_repo: None,
+        github_token_set: false,
     })
 }
 
 pub async fn list_projects(pool: &SqlitePool, owner_id: &str) -> Result<Vec<Project>> {
     let rows = sqlx::query(
-        "SELECT id, owner_id, slug, name, created_at FROM projects WHERE owner_id = ? ORDER BY created_at",
+        "SELECT id, owner_id, slug, name, created_at, github_repo,
+                CASE WHEN github_token IS NOT NULL AND length(github_token) > 0 THEN 1 ELSE 0 END AS github_token_set
+         FROM projects WHERE owner_id = ? ORDER BY created_at",
     )
     .bind(owner_id)
     .fetch_all(pool)
@@ -439,7 +445,11 @@ pub async fn list_projects(pool: &SqlitePool, owner_id: &str) -> Result<Vec<Proj
 }
 
 pub async fn get_project(pool: &SqlitePool, id: &str) -> Result<Option<Project>> {
-    let row = sqlx::query("SELECT id, owner_id, slug, name, created_at FROM projects WHERE id = ?")
+    let row = sqlx::query(
+        "SELECT id, owner_id, slug, name, created_at, github_repo,
+                CASE WHEN github_token IS NOT NULL AND length(github_token) > 0 THEN 1 ELSE 0 END AS github_token_set
+         FROM projects WHERE id = ?",
+    )
         .bind(id)
         .fetch_optional(pool)
         .await?;
@@ -452,7 +462,9 @@ pub async fn find_project_by_id_or_slug(
     identifier: &str,
 ) -> Result<Option<Project>> {
     let row = sqlx::query(
-        "SELECT id, owner_id, slug, name, created_at FROM projects WHERE owner_id = ? AND (id = ? OR slug = ?)",
+        "SELECT id, owner_id, slug, name, created_at, github_repo,
+                CASE WHEN github_token IS NOT NULL AND length(github_token) > 0 THEN 1 ELSE 0 END AS github_token_set
+         FROM projects WHERE owner_id = ? AND (id = ? OR slug = ?)",
     )
     .bind(owner_id)
     .bind(identifier)
@@ -468,7 +480,8 @@ pub async fn find_project_by_username_and_slug(
     slug: &str,
 ) -> Result<Option<Project>> {
     let row = sqlx::query(
-        "SELECT p.id, p.owner_id, p.slug, p.name, p.created_at
+        "SELECT p.id, p.owner_id, p.slug, p.name, p.created_at, p.github_repo,
+                CASE WHEN p.github_token IS NOT NULL AND length(p.github_token) > 0 THEN 1 ELSE 0 END AS github_token_set
          FROM projects p
          JOIN users u ON u.id = p.owner_id
          WHERE (u.username = ? OR lower(substr(u.email, 1, instr(u.email, '@') - 1)) = ?)
@@ -605,6 +618,81 @@ fn row_to_user(row: sqlx::sqlite::SqliteRow) -> User {
     }
 }
 
+pub async fn set_project_github(
+    pool: &SqlitePool,
+    owner_id: &str,
+    project_id: &str,
+    github_repo: Option<&str>,
+    github_token: Option<&str>,
+) -> Result<Option<Project>> {
+    let existing = find_project_by_id_or_slug(pool, owner_id, project_id).await?;
+    let Some(existing) = existing else {
+        return Ok(None);
+    };
+    let ts = now();
+    match (github_repo, github_token) {
+        (None, _) => {
+            sqlx::query(
+                "UPDATE projects SET github_repo = NULL, github_token = NULL, updated_at = ? WHERE id = ? AND owner_id = ?",
+            )
+            .bind(&ts)
+            .bind(&existing.id)
+            .bind(owner_id)
+            .execute(pool)
+            .await?;
+        }
+        (Some(repo), Some(token)) if !token.is_empty() => {
+            sqlx::query(
+                "UPDATE projects SET github_repo = ?, github_token = ?, updated_at = ? WHERE id = ? AND owner_id = ?",
+            )
+            .bind(repo)
+            .bind(token)
+            .bind(&ts)
+            .bind(&existing.id)
+            .bind(owner_id)
+            .execute(pool)
+            .await?;
+        }
+        (Some(repo), _) => {
+            sqlx::query(
+                "UPDATE projects SET github_repo = ?, updated_at = ? WHERE id = ? AND owner_id = ?",
+            )
+            .bind(repo)
+            .bind(&ts)
+            .bind(&existing.id)
+            .bind(owner_id)
+            .execute(pool)
+            .await?;
+        }
+    }
+    get_project(pool, &existing.id).await
+}
+
+/// Returns (owner/repo, token). Token is never put on Project / GET JSON.
+pub async fn get_project_github_secret(
+    pool: &SqlitePool,
+    owner_id: &str,
+    project_id: &str,
+) -> Result<Option<(String, String)>> {
+    let row = sqlx::query(
+        "SELECT github_repo, github_token FROM projects WHERE owner_id = ? AND (id = ? OR slug = ?)",
+    )
+    .bind(owner_id)
+    .bind(project_id)
+    .bind(project_id)
+    .fetch_optional(pool)
+    .await?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    let repo: Option<String> = row.get("github_repo");
+    let token: Option<String> = row.get("github_token");
+    match (repo, token) {
+        (Some(r), Some(t)) if !r.is_empty() && !t.is_empty() => Ok(Some((r, t))),
+        _ => Ok(None),
+    }
+}
+
 fn row_to_project(row: &sqlx::sqlite::SqliteRow) -> Project {
     Project {
         id: row.get("id"),
@@ -612,5 +700,7 @@ fn row_to_project(row: &sqlx::sqlite::SqliteRow) -> Project {
         slug: row.get("slug"),
         name: row.get("name"),
         created_at: row.get("created_at"),
+        github_repo: row.get("github_repo"),
+        github_token_set: row.get::<i64, _>("github_token_set") != 0,
     }
 }

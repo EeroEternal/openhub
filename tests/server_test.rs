@@ -546,6 +546,265 @@ async fn cli_browser_login_issues_session() {
     assert_eq!(status, StatusCode::NOT_FOUND, "{again}");
 }
 
+#[tokio::test]
+async fn github_link_is_write_only_and_required_for_push() {
+    let (hub, _tmp) = test_hub().await;
+    let app = create_router(hub);
+
+    let (status, body) = json_request(
+        app.clone(),
+        "POST",
+        "/api/v1/auth/register",
+        None,
+        Some(serde_json::json!({
+            "email": "gh@example.com",
+            "password": "password1"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let token = body["token"].as_str().unwrap();
+
+    let (status, project) = json_request(
+        app.clone(),
+        "POST",
+        "/api/v1/projects",
+        Some(token),
+        Some(serde_json::json!({ "name": "Mirror" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{project}");
+    let id = project["id"].as_str().unwrap();
+
+    let (status, missing) = json_request(
+        app.clone(),
+        "PUT",
+        &format!("/api/v1/projects/{id}/github"),
+        Some(token),
+        Some(serde_json::json!({ "github_repo": "acme/mirror" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{missing}");
+
+    let (status, linked) = json_request(
+        app.clone(),
+        "PUT",
+        &format!("/api/v1/projects/{id}/github"),
+        Some(token),
+        Some(serde_json::json!({
+            "github_repo": "https://github.com/acme/mirror.git",
+            "github_token": "ghp_testtoken"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{linked}");
+    assert_eq!(linked["github_repo"], "acme/mirror");
+    assert_eq!(linked["github_token_set"], true);
+    assert!(linked.get("github_token").is_none());
+
+    let (status, got) = json_request(
+        app.clone(),
+        "GET",
+        &format!("/api/v1/projects/{id}"),
+        Some(token),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{got}");
+    assert_eq!(got["github_repo"], "acme/mirror");
+    assert_eq!(got["github_token_set"], true);
+    assert!(got.get("github_token").is_none());
+
+    let (status, unlinked) = json_request(
+        app.clone(),
+        "DELETE",
+        &format!("/api/v1/projects/{id}/github"),
+        Some(token),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{unlinked}");
+    assert_eq!(unlinked["github_token_set"], false);
+
+    let (status, push) = json_request(
+        app,
+        "POST",
+        &format!("/api/v1/projects/{id}/github/push"),
+        Some(token),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{push}");
+}
+
+#[tokio::test]
+async fn git_receive_pack_accepts_body_above_axum_default() {
+    let (hub, _tmp) = test_hub().await;
+    let app = create_router(hub);
+
+    let (status, body) = json_request(
+        app.clone(),
+        "POST",
+        "/api/v1/auth/register",
+        None,
+        Some(serde_json::json!({
+            "email": "pack@example.com",
+            "password": "password1"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let token = body["token"].as_str().unwrap().to_string();
+
+    let (status, project) = json_request(
+        app.clone(),
+        "POST",
+        "/api/v1/projects",
+        Some(&token),
+        Some(serde_json::json!({ "name": "Pack Limit" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{project}");
+    let id = project["id"].as_str().unwrap();
+
+    // 3 MiB exceeds axum's 2 MiB default; git-http-backend may still reject the
+    // bytes as an invalid pack, but the gateway must not answer 413.
+    let payload = vec![0_u8; 3 * 1024 * 1024];
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/git/{id}/git-receive-pack"))
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/x-git-receive-pack-request")
+                .body(Body::from(payload))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_ne!(
+        response.status(),
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "git pack POST must raise DefaultBodyLimit above axum's 2 MiB default"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn git_smart_http_fetch_and_push_roundtrip() {
+    let (hub, _tmp) = test_hub().await;
+    let app = create_router(hub);
+
+    let (status, body) = json_request(
+        app.clone(),
+        "POST",
+        "/api/v1/auth/register",
+        None,
+        Some(serde_json::json!({
+            "email": "githttp@example.com",
+            "password": "password1"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let token = body["token"].as_str().unwrap().to_string();
+
+    let (status, project) = json_request(
+        app.clone(),
+        "POST",
+        "/api/v1/projects",
+        Some(&token),
+        Some(serde_json::json!({ "name": "Git HTTP" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{project}");
+    let id = project["id"].as_str().unwrap().to_string();
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let git_url = format!("http://{addr}/git/{id}");
+    let auth = format!("http.extraHeader=Authorization: Bearer {token}");
+    let work = tempfile::tempdir().unwrap();
+    let clone = work.path().join("clone");
+
+    let fetch = std::process::Command::new("git")
+        .args([
+            "-c",
+            &auth,
+            "-c",
+            "protocol.version=2",
+            "ls-remote",
+            &git_url,
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        fetch.status.success(),
+        "git-upload-pack/ls-remote failed: {} {}",
+        String::from_utf8_lossy(&fetch.stdout),
+        String::from_utf8_lossy(&fetch.stderr)
+    );
+    let refs = String::from_utf8_lossy(&fetch.stdout);
+    assert!(refs.contains("refs/heads/main"), "missing main ref: {refs}");
+
+    let cloned = std::process::Command::new("git")
+        .args(["-c", &auth, "clone", &git_url, clone.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        cloned.status.success(),
+        "git clone failed: {}",
+        String::from_utf8_lossy(&cloned.stderr)
+    );
+
+    std::fs::write(clone.join("blob.bin"), vec![b'x'; 3 * 1024 * 1024]).unwrap();
+    assert!(
+        std::process::Command::new("git")
+            .args(["-C", clone.to_str().unwrap(), "add", "blob.bin"])
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert!(
+        std::process::Command::new("git")
+            .args([
+                "-C",
+                clone.to_str().unwrap(),
+                "-c",
+                "user.email=test@example.com",
+                "-c",
+                "user.name=Test",
+                "commit",
+                "-m",
+                "add 3MiB blob",
+            ])
+            .status()
+            .unwrap()
+            .success()
+    );
+    let pushed = std::process::Command::new("git")
+        .args([
+            "-C",
+            clone.to_str().unwrap(),
+            "-c",
+            &auth,
+            "push",
+            "origin",
+            "HEAD:refs/heads/main",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        pushed.status.success(),
+        "git push failed: {} {}",
+        String::from_utf8_lossy(&pushed.stdout),
+        String::from_utf8_lossy(&pushed.stderr)
+    );
+}
+
 async fn raw_request(app: axum::Router, uri: &str) -> (StatusCode, Vec<u8>) {
     let response = app
         .oneshot(
