@@ -1,0 +1,3 @@
+# Extra ignore for `oh sync` snapshots (gitignore syntax).
+# Applies in addition to .gitignore. Does not untrack files already in git.
+# `.openhub/` is always excluded by oh, even without this file.

@@ -530,9 +530,8 @@ async fn sync() -> Result<()> {
     let client = client(&creds);
     if dir.join(".git").exists() {
         // Auto-commit any unstaged or untracked changes before pushing
-        let has_changes = Command::new("git")
-            .args(["status", "--porcelain"])
-            .current_dir(&dir)
+        let has_changes = git_with_openhub_ignore(&dir)
+            .args(["status", "--porcelain", "--", ".", ":!.openhub"])
             .output()
             .ok()
             .map(|o| !o.stdout.is_empty())
@@ -540,10 +539,8 @@ async fn sync() -> Result<()> {
 
         if has_changes {
             // Never commit OpenHub local cache (config + session events).
-            let _ = Command::new("git")
-                .args(["add", "-A", "--", ".", ":!.openhub"])
-                .current_dir(&dir)
-                .status();
+            // `.openhubignore` is extra gitignore syntax for this snapshot add.
+            stage_sync_snapshot(&dir);
 
             let staged = Command::new("git")
                 .args(["diff", "--cached", "--quiet"])
@@ -1001,6 +998,28 @@ fn load_creds() -> Result<Creds> {
     Ok(serde_json::from_slice(&bytes)?)
 }
 
+fn openhub_ignore_file(dir: &Path) -> Option<PathBuf> {
+    let path = dir.join(".openhubignore");
+    path.is_file().then_some(path)
+}
+
+fn git_with_openhub_ignore(dir: &Path) -> Command {
+    let mut cmd = Command::new("git");
+    cmd.current_dir(dir);
+    if let Some(ignore) = openhub_ignore_file(dir) {
+        cmd.arg("-c")
+            .arg(format!("core.excludesFile={}", ignore.display()));
+    }
+    cmd
+}
+
+/// Stage worktree for `oh sync`, honoring `.gitignore`, `.openhubignore`, and never `.openhub/`.
+fn stage_sync_snapshot(dir: &Path) {
+    let _ = git_with_openhub_ignore(dir)
+        .args(["add", "-A", "--", ".", ":!.openhub"])
+        .status();
+}
+
 fn git_ok(dir: &Path, args: &[&str]) -> bool {
     Command::new("git")
         .args(args)
@@ -1136,5 +1155,76 @@ fn prefetch_critical_files(dir: &Path) {
                 .stdout(std::process::Stdio::null())
                 .status();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    fn init_repo() -> tempfile::TempDir {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        assert!(
+            Command::new("git")
+                .args(["init", "-b", "main"])
+                .current_dir(dir)
+                .status()
+                .unwrap()
+                .success()
+        );
+        for (k, v) in [("user.email", "test@example.com"), ("user.name", "Test")] {
+            assert!(
+                Command::new("git")
+                    .args(["config", k, v])
+                    .current_dir(dir)
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+        }
+        tmp
+    }
+
+    fn staged_names(dir: &Path) -> HashSet<String> {
+        git_stdout(dir, &["diff", "--cached", "--name-only"])
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(str::to_string)
+            .collect()
+    }
+
+    #[test]
+    fn openhubignore_skips_files_and_folders_on_snapshot_add() {
+        let tmp = init_repo();
+        let dir = tmp.path();
+        fs::write(
+            dir.join(".openhubignore"),
+            "# comments and globs\nsecret.txt\nbuild/\n*.log\n",
+        )
+        .unwrap();
+        fs::write(dir.join("keep.txt"), "ok").unwrap();
+        fs::write(dir.join("secret.txt"), "nope").unwrap();
+        fs::write(dir.join("noise.log"), "log").unwrap();
+        fs::create_dir_all(dir.join("build")).unwrap();
+        fs::write(dir.join("build").join("out.bin"), "x").unwrap();
+        fs::create_dir_all(dir.join(".openhub")).unwrap();
+        fs::write(dir.join(".openhub").join("config.json"), "{}").unwrap();
+
+        stage_sync_snapshot(dir);
+        let staged = staged_names(dir);
+        assert!(staged.contains("keep.txt"), "{staged:?}");
+        assert!(staged.contains(".openhubignore"), "{staged:?}");
+        assert!(!staged.contains("secret.txt"), "{staged:?}");
+        assert!(!staged.contains("noise.log"), "{staged:?}");
+        assert!(!staged.iter().any(|p| p.starts_with("build")), "{staged:?}");
+        assert!(
+            !staged
+                .iter()
+                .any(|p| p == ".openhub" || p.starts_with(".openhub/")),
+            "{staged:?}"
+        );
     }
 }

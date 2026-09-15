@@ -28,6 +28,8 @@ oh github set owner/repo
 oh sync
 ```
 
+`oh sync` also reads a root `.openhubignore` (gitignore syntax) in addition to `.gitignore`. `.openhub/` is always excluded.
+
 Auth is email + password (or a personal access token prefixed `oh_`).
 Git Smart HTTP lives at `/git/{username}/{slug}` or `/git/{project_id}`.
 Session events live at `/api/v1/projects/{id}/events`.
