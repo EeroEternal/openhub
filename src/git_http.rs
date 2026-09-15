@@ -14,6 +14,9 @@ use crate::error::{Error, Result};
 use crate::server::HubState;
 use crate::store;
 
+/// axum's default body limit is 2 MiB, which rejects ordinary `git push` packs.
+pub const MAX_PACK_BODY: usize = 512 * 1024 * 1024;
+
 #[derive(Debug, Deserialize)]
 pub struct InfoRefsQuery {
     pub service: Option<String>,
@@ -39,6 +42,7 @@ pub async fn info_refs(
         Method::GET,
         "/info/refs",
         &qs,
+        &headers,
         &[],
     )
 }
@@ -58,6 +62,7 @@ pub async fn upload_pack(
         Method::POST,
         "/git-upload-pack",
         "",
+        &headers,
         &body,
     )
 }
@@ -77,6 +82,7 @@ pub async fn receive_pack(
         Method::POST,
         "/git-receive-pack",
         "",
+        &headers,
         &body,
     )
 }
@@ -102,6 +108,7 @@ pub async fn info_refs_user_repo(
         Method::GET,
         "/info/refs",
         &qs,
+        &headers,
         &[],
     )
 }
@@ -122,6 +129,7 @@ pub async fn upload_pack_user_repo(
         Method::POST,
         "/git-upload-pack",
         "",
+        &headers,
         &body,
     )
 }
@@ -142,6 +150,7 @@ pub async fn receive_pack_user_repo(
         Method::POST,
         "/git-receive-pack",
         "",
+        &headers,
         &body,
     )
 }
@@ -208,7 +217,7 @@ pub fn ensure_http_enabled(repo: &Path) -> Result<()> {
         ("uploadpack.allowFilter", "true"),
         ("uploadpackfilter.allow", "true"),
     ] {
-        let st = Command::new("git")
+        let st = git_command()
             .args(["config", key, val])
             .current_dir(repo)
             .status()
@@ -220,33 +229,71 @@ pub fn ensure_http_enabled(repo: &Path) -> Result<()> {
     Ok(())
 }
 
+fn git_command() -> Command {
+    let mut cmd = Command::new("git");
+    // Inherited GIT_* from the server process (e.g. running out of this repo)
+    // would make http-backend operate on the wrong tree.
+    cmd.env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_COMMON_DIR")
+        .env_remove("GIT_OBJECT_DIRECTORY")
+        .env_remove("GIT_INDEX_FILE")
+        .env_remove("GIT_PROTOCOL");
+    cmd
+}
+
 fn cgi(
     root: &Path,
     project_id: &str,
     method: Method,
     suffix: &str,
     query: &str,
+    headers: &HeaderMap,
     body: &[u8],
 ) -> Result<Response> {
     let path_info = format!("/{project_id}{suffix}");
-    let content_type = if suffix.contains("receive-pack") {
-        "application/x-git-receive-pack-request"
-    } else {
-        "application/x-git-upload-pack-request"
-    };
-    let mut child = Command::new("git")
-        .arg("http-backend")
+    let content_type = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned)
+        .unwrap_or_else(|| {
+            if suffix.contains("receive-pack") {
+                "application/x-git-receive-pack-request".into()
+            } else if suffix.contains("upload-pack") {
+                "application/x-git-upload-pack-request".into()
+            } else {
+                String::new()
+            }
+        });
+    let mut cmd = git_command();
+    cmd.arg("http-backend")
         .current_dir(root)
         .env("GIT_HTTP_EXPORT_ALL", "1")
         .env("GIT_PROJECT_ROOT", root)
-        .env("PATH_INFO", path_info)
+        .env("PATH_INFO", &path_info)
         .env("QUERY_STRING", query)
         .env("REQUEST_METHOD", method.as_str())
-        .env("CONTENT_TYPE", content_type)
+        .env("CONTENT_TYPE", &content_type)
         .env("CONTENT_LENGTH", body.len().to_string())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    if let Some(proto) = headers
+        .get("Git-Protocol")
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty())
+    {
+        cmd.env("GIT_PROTOCOL", proto);
+        cmd.env("HTTP_GIT_PROTOCOL", proto);
+    }
+    if let Some(enc) = headers
+        .get(header::CONTENT_ENCODING)
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty())
+    {
+        cmd.env("HTTP_CONTENT_ENCODING", enc);
+    }
+    let mut child = cmd
         .spawn()
         .map_err(|e| Error::Internal(anyhow::anyhow!("git http-backend: {e}")))?;
 
@@ -263,7 +310,13 @@ fn cgi(
     if !output.status.success() {
         let err = String::from_utf8_lossy(&output.stderr);
         tracing::warn!(%err, "git http-backend failed");
-        return Err(Error::Internal(anyhow::anyhow!("git http-backend failed")));
+        let detail = err.trim();
+        if detail.is_empty() {
+            return Err(Error::Internal(anyhow::anyhow!("git http-backend failed")));
+        }
+        return Err(Error::Internal(anyhow::anyhow!(
+            "git http-backend failed: {detail}"
+        )));
     }
     parse_cgi(&output.stdout)
 }
