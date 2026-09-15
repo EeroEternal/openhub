@@ -5,6 +5,12 @@ on:
     workflows: ["CI Local-Gate Mirror"]
     types: [completed]
   workflow_dispatch:
+    inputs:
+      public_key:
+        description: If set, only install this SSH public key on the VM (skip deploy)
+        required: false
+        type: string
+        default: ""
 
 concurrency:
   group: deploy-production
@@ -14,13 +20,41 @@ permissions:
   contents: read
 
 jobs:
+  authorize-ssh:
+    name: Install operator public key
+    if: github.event_name == 'workflow_dispatch' && inputs.public_key != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: webfactory/ssh-agent@v0.9.1
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+      - name: Append public key to authorized_keys
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          PUBKEY: ${{ inputs.public_key }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          ssh-keyscan -T 15 -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+          printf '%s\n' "$PUBKEY" | ssh "${DEPLOY_USER}@${DEPLOY_HOST}" 'key=$(cat)
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          touch ~/.ssh/authorized_keys
+          chmod 600 ~/.ssh/authorized_keys
+          grep -qxF "$key" ~/.ssh/authorized_keys || echo "$key" >> ~/.ssh/authorized_keys'
+          echo "installed public key for ${DEPLOY_USER}@${DEPLOY_HOST}"
+
   rev:
     name: Resolve SHA
     runs-on: ubuntu-latest
     timeout-minutes: 3
     if: >
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' &&
+      (github.event_name == 'workflow_dispatch' && inputs.public_key == '') ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.head_branch == 'main')
     outputs:
       sha: ${{ steps.rev.outputs.sha }}
