@@ -31,5 +31,6 @@ oh sync
 `oh sync` also reads a root `.openhubignore` (gitignore syntax) in addition to `.gitignore`. `.openhub/` is always excluded.
 
 Auth is email + password (or a personal access token prefixed `oh_`).
-Git Smart HTTP lives at `/git/{username}/{slug}` or `/git/{project_id}`.
+Connect GitHub in Settings (github.com OAuth), not with a PAT on a project.
+Git Smart HTTP lives at `/git/{username}/{slug}` or `/git/{project_id}` (OpenHub remote, not GitHub).
 Session events live at `/api/v1/projects/{id}/events`.

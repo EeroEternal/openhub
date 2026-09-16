@@ -13,6 +13,8 @@ pub struct Config {
     pub cells_lease_ttl_secs: u64,
     pub database_url: PathBuf,
     pub static_dir: Option<PathBuf>,
+    pub github_client_id: String,
+    pub github_client_secret: String,
 }
 
 impl Default for Config {
@@ -46,6 +48,14 @@ impl Default for Config {
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .map(PathBuf::from),
+            github_client_id: std::env::var("OPENHUB_GITHUB_CLIENT_ID")
+                .unwrap_or_default()
+                .trim()
+                .to_string(),
+            github_client_secret: std::env::var("OPENHUB_GITHUB_CLIENT_SECRET")
+                .unwrap_or_default()
+                .trim()
+                .to_string(),
         }
     }
 }

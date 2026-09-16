@@ -51,6 +51,8 @@ Working trees: `$OPENHUB_DATA_DIR/<repo>` (default `./data/repos/<repo>`). Same 
 | `OPENHUB_STATIC_DIR` | unset | If set, serve Admin `dist` (SPA + `/llms.txt`) |
 | `OPENHUB_MAIL_ENDPOINT` | unset | POST JSON `{to,subject,text}` with bearer token |
 | `OPENHUB_MAIL_TOKEN` | unset | If unset, verify URLs are only logged |
+| `OPENHUB_GITHUB_CLIENT_ID` | unset | GitHub OAuth App client id |
+| `OPENHUB_GITHUB_CLIENT_SECRET` | unset | GitHub OAuth App client secret |
 
 ## Deploy
 

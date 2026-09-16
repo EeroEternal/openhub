@@ -4,6 +4,7 @@ pub mod config;
 pub mod error;
 pub mod git_http;
 pub mod git_sync;
+pub mod github;
 pub mod mail;
 pub mod projects;
 pub mod server;

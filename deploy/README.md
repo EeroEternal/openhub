@@ -26,6 +26,25 @@ Repo → Settings → Secrets and variables → Actions:
 
 Manual run: Actions → **Deploy production** → Run workflow.
 
+## GitHub OAuth (Settings → GitHub)
+
+Create a GitHub OAuth App (not a GitHub App):
+
+1. GitHub → **Settings** → **Developer settings** → **OAuth Apps** → **New OAuth App**
+2. Application name: `OpenHub`
+3. Homepage URL: `https://openhub.run`
+4. Authorization callback URL: `https://openhub.run/api/v1/auth/github/callback`
+5. Copy **Client ID** and generate a **Client secret**
+
+On the origin VM, put them on `openhub.service` (then `sudo systemctl daemon-reload && sudo systemctl restart openhub`):
+
+```
+Environment=OPENHUB_GITHUB_CLIENT_ID=Iv1...
+Environment=OPENHUB_GITHUB_CLIENT_SECRET=...
+```
+
+Local: export the same two variables before `cargo run`. Until they are set, Settings → GitHub shows that OAuth is not configured.
+
 ## Check after deploy
 
 ```bash

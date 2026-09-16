@@ -38,6 +38,8 @@ async fn main() -> Result<()> {
         public_origin: config.public_origin.clone(),
         cells_dir: config.cells_dir.clone(),
         cells_storage_dir: config.cells_storage_dir.clone(),
+        github_client_id: config.github_client_id.clone(),
+        github_client_secret: config.github_client_secret.clone(),
     };
     let app = server::create_router_with_static(hub, static_dir);
 

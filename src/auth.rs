@@ -327,9 +327,45 @@ pub async fn logout(State(hub): State<HubState>, headers: HeaderMap) -> Result<J
 
 pub async fn me(State(hub): State<HubState>, headers: HeaderMap) -> Result<Json<Value>> {
     let user = user_from_headers(&hub, &headers).await?;
-    Ok(Json(
-        json!({ "id": user.id, "email": user.email, "username": user.username }),
-    ))
+    Ok(Json(me_json(&hub, &user)))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PatchMeRequest {
+    pub username: Option<String>,
+}
+
+pub async fn patch_me(
+    State(hub): State<HubState>,
+    headers: HeaderMap,
+    Json(body): Json<PatchMeRequest>,
+) -> Result<Json<Value>> {
+    let mut user = user_from_headers(&hub, &headers).await?;
+    if let Some(raw) = body.username {
+        let username = normalize_username(&raw)?;
+        if username != user.username {
+            if let Some(existing) = store::find_user_by_username(&hub.db, &username).await?
+                && existing.id != user.id
+            {
+                return Err(Error::InvalidRequest("username is already taken".into()));
+            }
+            store::set_username(&hub.db, &user.id, &username).await?;
+            user.username = username;
+        }
+    }
+    Ok(Json(me_json(&hub, &user)))
+}
+
+fn me_json(hub: &HubState, user: &store::User) -> Value {
+    json!({
+        "id": user.id,
+        "email": user.email,
+        "username": user.username,
+        "github_login": user.github_login,
+        "github_connected": user.github_login.as_deref().is_some_and(|s| !s.is_empty()),
+        "github_oauth_configured": !hub.github_client_id.is_empty()
+            && !hub.github_client_secret.is_empty(),
+    })
 }
 
 pub async fn change_password(
@@ -466,7 +502,7 @@ fn normalize_email(email: &str) -> Result<String> {
     Ok(email)
 }
 
-fn normalize_username(username: &str) -> Result<String> {
+pub(crate) fn normalize_username(username: &str) -> Result<String> {
     let username = username.trim().to_lowercase();
     if username.len() < 2 || username.len() > 39 {
         return Err(Error::InvalidRequest(

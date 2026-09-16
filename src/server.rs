@@ -23,6 +23,7 @@ use crate::cli_auth;
 use crate::error::Error;
 use crate::git_http;
 use crate::git_sync;
+use crate::github;
 use crate::mail::Mailer;
 use crate::projects;
 use crate::sessions;
@@ -36,6 +37,8 @@ pub struct HubState {
     pub public_origin: String,
     pub cells_dir: PathBuf,
     pub cells_storage_dir: PathBuf,
+    pub github_client_id: String,
+    pub github_client_secret: String,
 }
 
 pub fn create_router(hub: HubState) -> Router {
@@ -64,7 +67,10 @@ pub fn create_router_with_static(hub: HubState, static_dir: Option<PathBuf>) -> 
         )
         .route("/api/v1/auth/forgot/reset", post(auth::reset_password))
         .route("/api/v1/auth/logout", post(auth::logout))
-        .route("/api/v1/me", get(auth::me))
+        .route("/api/v1/auth/github/start", get(github::start))
+        .route("/api/v1/auth/github/callback", get(github::callback))
+        .route("/api/v1/me", get(auth::me).patch(auth::patch_me))
+        .route("/api/v1/me/github", delete(github::disconnect))
         .route("/api/v1/me/password", post(auth::change_password))
         .route(
             "/api/v1/me/tokens",
@@ -80,6 +86,7 @@ pub fn create_router_with_static(hub: HubState, static_dir: Option<PathBuf>) -> 
             "/api/v1/projects/{id}",
             get(projects::get).delete(projects::delete),
         )
+        .route("/api/v1/projects/{id}/commits", get(projects::list_commits))
         .route(
             "/api/v1/projects/{id}/github",
             put(projects::put_github).delete(projects::delete_github),

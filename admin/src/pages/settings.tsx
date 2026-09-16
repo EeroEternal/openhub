@@ -1,9 +1,11 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useState } from "react"
+import { useSearchParams } from "react-router-dom"
 import {
   Check,
   Copy,
   Download,
+  Github,
   KeyRound,
   Lock,
   Palette,
@@ -46,15 +48,40 @@ interface PatTokenItem {
 
 const SECTIONS: SettingsSection[] = [
   { id: "account", label: "settings.account", icon: User },
+  { id: "github", label: "settings.github", icon: Github },
   { id: "tokens", label: "settings.tokens", icon: KeyRound },
   { id: "appearance", label: "settings.appearance", icon: Palette },
 ]
 
+type Me = {
+  email: string
+  username?: string
+  github_login?: string | null
+  github_connected?: boolean
+  github_oauth_configured?: boolean
+}
+
 export default function SettingsPage() {
   const { language, setLanguage } = useI18n()
-  const [activeSection, setActiveSection] = useState("account")
+  const [params, setParams] = useSearchParams()
+  const sectionParam = params.get("section")
+  const [activeSection, setActiveSection] = useState(
+    sectionParam && SECTIONS.some((s) => s.id === sectionParam) ? sectionParam : "account",
+  )
   const [email, setEmail] = useState("")
   const [username, setUsername] = useState("")
+  const [draftUsername, setDraftUsername] = useState("")
+  const [isEditingAccount, setIsEditingAccount] = useState(false)
+  const [accountSaving, setAccountSaving] = useState(false)
+  const [accountSaveMessage, setAccountSaveMessage] = useState<{
+    type: "success" | "error"
+    text: string
+  } | null>(null)
+  const [githubLogin, setGithubLogin] = useState<string | null>(null)
+  const [githubConnected, setGithubConnected] = useState(false)
+  const [githubConfigured, setGithubConfigured] = useState(false)
+  const [githubPending, setGithubPending] = useState(false)
+  const [disconnectOpen, setDisconnectOpen] = useState(false)
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false)
 
   // PAT (Personal Access Tokens) state
@@ -87,17 +114,33 @@ export default function SettingsPage() {
   const [newPassword, setNewPassword] = useState("")
   const [passwordPending, setPasswordPending] = useState(false)
 
+  function applyMe(me: Me) {
+    setEmail(me.email)
+    setUsername(me.username || "")
+    setDraftUsername(me.username || "")
+    setGithubLogin(me.github_login ?? null)
+    setGithubConnected(Boolean(me.github_connected))
+    setGithubConfigured(Boolean(me.github_oauth_configured))
+  }
+
   useEffect(() => {
-    void api<{ email: string; username?: string }>("/api/v1/me")
-      .then((me) => {
-        setEmail(me.email)
-        setUsername(me.username || "")
-      })
+    void api<Me>("/api/v1/me")
+      .then(applyMe)
       .catch(() => {
         setEmail("")
         setUsername("")
       })
   }, [])
+
+  useEffect(() => {
+    const flag = params.get("github")
+    if (!flag) return
+    if (flag === "connected") toast.success(t("settings.githubConnected"))
+    if (flag === "error") toast.error(t("settings.githubError"))
+    const next = new URLSearchParams(params)
+    next.delete("github")
+    setParams(next, { replace: true })
+  }, [params, setParams])
 
   function fetchTokens() {
     setTokensLoading(true)
@@ -141,8 +184,69 @@ export default function SettingsPage() {
 
   function handleSectionChange(sectionId: string) {
     setIsEditingAppearance(false)
+    setIsEditingAccount(false)
     setActiveSection(sectionId)
     setAppearanceSaveMessage(null)
+    setAccountSaveMessage(null)
+    const next = new URLSearchParams(params)
+    next.set("section", sectionId)
+    setParams(next, { replace: true })
+  }
+
+  function handleStartEditAccount() {
+    setDraftUsername(username)
+    setIsEditingAccount(true)
+    setAccountSaveMessage(null)
+  }
+
+  function handleCancelEditAccount() {
+    setDraftUsername(username)
+    setIsEditingAccount(false)
+    setAccountSaveMessage(null)
+  }
+
+  async function handleSaveAccount() {
+    setAccountSaving(true)
+    try {
+      const me = await api<Me>("/api/v1/me", {
+        method: "PATCH",
+        body: JSON.stringify({ username: draftUsername.trim() }),
+      })
+      applyMe(me)
+      setIsEditingAccount(false)
+      setAccountSaveMessage({ type: "success", text: t("settings.savedSuccess") })
+      setTimeout(() => setAccountSaveMessage(null), 3000)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("common.error"))
+    } finally {
+      setAccountSaving(false)
+    }
+  }
+
+  async function handleGithubConnect() {
+    setGithubPending(true)
+    try {
+      const res = await api<{ url: string }>("/api/v1/auth/github/start")
+      window.location.assign(res.url)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("common.error"))
+      setGithubPending(false)
+    }
+  }
+
+  async function handleGithubDisconnect() {
+    setGithubPending(true)
+    try {
+      await api("/api/v1/me/github", { method: "DELETE" })
+      setGithubLogin(null)
+      setGithubConnected(false)
+      setDisconnectOpen(false)
+      toast.success(t("settings.githubDisconnected"))
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("common.error"))
+    } finally {
+      setGithubPending(false)
+    }
   }
 
   async function handlePasswordChange(e: React.FormEvent) {
@@ -261,18 +365,41 @@ export default function SettingsPage() {
                   title={t("settings.account")}
                   description={t("settings.accountDesc")}
                   headerExtra={
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setPasswordDialogOpen(true)}
-                      className="h-8 gap-1.5 text-xs font-medium"
-                    >
-                      <Lock className="h-3.5 w-3.5 text-primary" />
-                      {t("settings.password")}
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      {!isEditingAccount ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleStartEditAccount}
+                          className="h-8 gap-1.5 text-xs font-medium"
+                        >
+                          <Sliders className="h-3.5 w-3.5 text-primary" />
+                          {t("settings.editSettings")}
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleCancelEditAccount}
+                          className="h-8 gap-1.5 text-xs"
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" />
+                          {t("settings.cancelEdit")}
+                        </Button>
+                      )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setPasswordDialogOpen(true)}
+                        className="h-8 gap-1.5 text-xs font-medium"
+                      >
+                        <Lock className="h-3.5 w-3.5 text-primary" />
+                        {t("settings.password")}
+                      </Button>
+                    </div>
                   }
                 >
-                  <div className="space-y-4">
+                  {!isEditingAccount ? (
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <div className="flex flex-col justify-between rounded-lg border border-border/70 bg-card p-3.5 shadow-sm">
                         <div className="flex items-center justify-between text-xs text-muted-foreground">
@@ -283,20 +410,38 @@ export default function SettingsPage() {
                           {email || "—"}
                         </div>
                       </div>
-
-                      {username ? (
-                        <div className="flex flex-col justify-between rounded-lg border border-border/70 bg-card p-3.5 shadow-sm">
-                          <div className="flex items-center justify-between text-xs text-muted-foreground">
-                            <span className="font-medium">{t("auth.username")}</span>
-                            <User className="h-3.5 w-3.5 text-muted-foreground" />
-                          </div>
-                          <div className="mt-2 text-sm font-semibold text-foreground truncate">
-                            {username}
-                          </div>
+                      <div className="flex flex-col justify-between rounded-lg border border-border/70 bg-card p-3.5 shadow-sm">
+                        <div className="flex items-center justify-between text-xs text-muted-foreground">
+                          <span className="font-medium">{t("auth.username")}</span>
+                          <User className="h-3.5 w-3.5 text-muted-foreground" />
                         </div>
-                      ) : null}
+                        <div className="mt-2 text-sm font-semibold text-foreground truncate">
+                          {username || "—"}
+                        </div>
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="space-y-4 max-w-lg">
+                      <div className="space-y-2">
+                        <Label htmlFor="account-email" className="text-xs font-medium">
+                          {t("auth.email")}
+                        </Label>
+                        <Input id="account-email" value={email} disabled className="h-9 text-sm" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="account-username" className="text-xs font-medium">
+                          {t("auth.username")}
+                        </Label>
+                        <Input
+                          id="account-username"
+                          value={draftUsername}
+                          onChange={(e) => setDraftUsername(e.target.value)}
+                          className="h-9 text-sm"
+                          autoComplete="username"
+                        />
+                      </div>
+                    </div>
+                  )}
                 </SectionCard>
 
                 <Dialog open={passwordDialogOpen} onOpenChange={setPasswordDialogOpen}>
@@ -357,6 +502,63 @@ export default function SettingsPage() {
                   </DialogContent>
                 </Dialog>
               </>
+            )}
+
+            {activeSection === "github" && (
+              <SectionCard
+                title={t("settings.github")}
+                description={t("settings.githubDesc")}
+                headerExtra={
+                  githubConnected ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setDisconnectOpen(true)}
+                      disabled={githubPending}
+                      className="h-8 gap-1.5 text-xs font-medium"
+                    >
+                      {t("settings.githubDisconnect")}
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      onClick={() => void handleGithubConnect()}
+                      disabled={githubPending || !githubConfigured}
+                      className="h-8 gap-1.5 text-xs font-medium"
+                    >
+                      <Github className="h-3.5 w-3.5" />
+                      {t("settings.githubConnect")}
+                    </Button>
+                  )
+                }
+              >
+                {!githubConfigured ? (
+                  <p className="text-xs text-muted-foreground">{t("settings.githubNotConfigured")}</p>
+                ) : githubConnected ? (
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="flex flex-col justify-between rounded-lg border border-border/70 bg-card p-3.5 shadow-sm">
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span className="font-medium">{t("settings.githubAccount")}</span>
+                        <Github className="h-3.5 w-3.5 text-muted-foreground" />
+                      </div>
+                      <div className="mt-2 text-sm font-semibold text-foreground truncate">
+                        @{githubLogin}
+                      </div>
+                    </div>
+                    <div className="flex flex-col justify-between rounded-lg border border-border/70 bg-card p-3.5 shadow-sm">
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span className="font-medium">{t("settings.githubMirror")}</span>
+                        <Github className="h-3.5 w-3.5 text-muted-foreground" />
+                      </div>
+                      <div className="mt-2 text-sm font-semibold text-foreground truncate">
+                        {`github.com/${githubLogin}/{slug}`}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">{t("settings.githubHelp")}</p>
+                )}
+              </SectionCard>
             )}
 
             {activeSection === "tokens" && (
@@ -634,6 +836,17 @@ export default function SettingsPage() {
               </SectionCard>
             )}
 
+            {isEditingAccount && (
+              <SettingsSaveBar
+                saving={accountSaving}
+                message={accountSaveMessage}
+                onReset={handleCancelEditAccount}
+                onSave={() => void handleSaveAccount()}
+                resetLabel={t("settings.cancel")}
+                saveLabel={t("settings.saveChanges")}
+              />
+            )}
+
             {isEditingAppearance && (
               <SettingsSaveBar
                 saving={appearanceSaving}
@@ -646,6 +859,33 @@ export default function SettingsPage() {
             )}
           </div>
         </div>
+
+        <Dialog open={disconnectOpen} onOpenChange={setDisconnectOpen}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>{t("settings.githubDisconnect")}</DialogTitle>
+              <DialogDescription>{t("settings.githubDisconnectConfirm")}</DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="gap-2 sm:justify-end">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setDisconnectOpen(false)}
+                disabled={githubPending}
+              >
+                {t("settings.cancel")}
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => void handleGithubDisconnect()}
+                disabled={githubPending}
+              >
+                {t("settings.githubDisconnect")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Delete Confirmation Dialog */}
         <Dialog open={Boolean(tokenToDelete)} onOpenChange={(open) => !open && setTokenToDelete(null)}>

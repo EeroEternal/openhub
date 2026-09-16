@@ -62,8 +62,6 @@ type Project = {
   slug: string
   owner_username?: string
   full_name?: string
-  github_repo?: string | null
-  github_token_set?: boolean
 }
 type TreeEntry = { path: string; kind: string; size?: number }
 type CommitRow = { sha: string; date: string; message: string }
@@ -109,19 +107,11 @@ function CopyableCode({ text, className }: { text: string; className?: string })
   )
 }
 
-function parseLog(log: string): CommitRow[] {
-  return log
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const parts = line.split(/\s+/)
-      const sha = parts[0] ?? ""
-      const date = parts[1] ?? ""
-      const message = parts.slice(2).join(" ")
-      return { sha, date, message }
-    })
-    .filter((row) => row.sha)
+function formatCommitTime(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 function getLanguage(path: string): string {
@@ -573,7 +563,7 @@ export default function ProjectPage() {
   const tab: Tab = isTab(rawTab) ? rawTab : "code"
   const [project, setProject] = useState<Project | null>(null)
   const [tree, setTree] = useState<TreeEntry[]>([])
-  const [log, setLog] = useState("")
+  const [commits, setCommits] = useState<CommitRow[]>([])
   const [branches, setBranches] = useState<string[]>([])
   const [current, setCurrent] = useState("")
   const [status, setStatus] = useState("")
@@ -593,10 +583,6 @@ export default function ProjectPage() {
   const [sessionEvents, setSessionEvents] = useState<SessionEvent[]>([])
   const [loadingSessions, setLoadingSessions] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
-  const [githubRepo, setGithubRepo] = useState("")
-  const [githubToken, setGithubToken] = useState("")
-  const [githubSaving, setGithubSaving] = useState(false)
-  const [githubPushing, setGithubPushing] = useState(false)
 
   function toggleDir(dirPath: string) {
     setExpandedDirs((prev) => {
@@ -630,18 +616,16 @@ export default function ProjectPage() {
     if (!id) return
     const p = await api<Project>(`/api/v1/projects/${id}`)
     setProject(p)
-    setGithubRepo(p.github_repo ?? "")
-    setGithubToken("")
     const tr = await api<{ tree: TreeEntry[] }>(`/api/v1/repos/${id}/tree`).catch(() => ({
       tree: [] as TreeEntry[],
     }))
     const entries = tr.tree ?? []
     setTree(entries)
     const files = entries.filter((e) => e.kind === "file")
-    const lg = await api<{ log: string }>(`/api/v1/repos/${id}/log?limit=50`).catch(() => ({
-      log: "",
-    }))
-    setLog(lg.log ?? "")
+    const lg = await api<{ commits: CommitRow[] }>(`/api/v1/projects/${id}/commits?limit=50`).catch(
+      () => ({ commits: [] as CommitRow[] }),
+    )
+    setCommits(lg.commits ?? [])
     const br = await api<{ branches: string[]; current?: string }>(
       `/api/v1/repos/${id}/branches`
     ).catch(() => ({ branches: [] as string[], current: "" }))
@@ -834,7 +818,6 @@ export default function ProjectPage() {
     return turns
   }, [sessionEvents])
 
-  const commits = useMemo(() => parseLog(log), [log])
   const treeNodes = useMemo(() => buildFileTree(tree), [tree])
   const dirty = status
     .split("\n")
@@ -946,60 +929,6 @@ export default function ProjectPage() {
       setShowOpen(true)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("common.error"))
-    }
-  }
-
-  async function saveGithub() {
-    if (!id) return
-    setGithubSaving(true)
-    try {
-      const body: { github_repo: string; github_token?: string } = {
-        github_repo: githubRepo.trim(),
-      }
-      if (githubToken.trim()) body.github_token = githubToken.trim()
-      const p = await api<Project>(`/api/v1/projects/${id}/github`, {
-        method: "PUT",
-        body: JSON.stringify(body),
-      })
-      setProject(p)
-      setGithubRepo(p.github_repo ?? "")
-      setGithubToken("")
-      toast.success(t("project.githubSaved"))
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("common.error"))
-    } finally {
-      setGithubSaving(false)
-    }
-  }
-
-  async function unlinkGithub() {
-    if (!id) return
-    setGithubSaving(true)
-    try {
-      const p = await api<Project>(`/api/v1/projects/${id}/github`, {
-        method: "DELETE",
-      })
-      setProject(p)
-      setGithubRepo("")
-      setGithubToken("")
-      toast.success(t("project.githubUnlinked"))
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("common.error"))
-    } finally {
-      setGithubSaving(false)
-    }
-  }
-
-  async function pushGithub() {
-    if (!id) return
-    setGithubPushing(true)
-    try {
-      await api(`/api/v1/projects/${id}/github/push`, { method: "POST" })
-      toast.success(t("project.githubPushed"))
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("common.error"))
-    } finally {
-      setGithubPushing(false)
     }
   }
 
@@ -1290,7 +1219,7 @@ export default function ProjectPage() {
               <TableHeader className="sticky top-0 bg-card">
                 <TableRow>
                   <TableHead className="w-28">{t("project.commitSha")}</TableHead>
-                  <TableHead className="w-32">{t("project.commitDate")}</TableHead>
+                  <TableHead className="w-40">{t("project.commitDate")}</TableHead>
                   <TableHead>{t("project.commitMessage")}</TableHead>
                 </TableRow>
               </TableHeader>
@@ -1309,7 +1238,9 @@ export default function ProjectPage() {
                       onClick={() => void openCommit(row.sha)}
                     >
                       <TableCell className="font-mono text-meta-sm">{row.sha}</TableCell>
-                      <TableCell>{row.date}</TableCell>
+                      <TableCell className="whitespace-nowrap text-meta-sm">
+                        {formatCommitTime(row.date)}
+                      </TableCell>
                       <TableCell>{row.message}</TableCell>
                     </TableRow>
                   ))
@@ -1402,68 +1333,11 @@ export default function ProjectPage() {
                 <div className="space-y-1">
                   <span className="text-xs text-muted-foreground">{t("project.cloneUrl")}</span>
                   <CopyableCode text={cloneUrl} />
+                  <p className="text-meta-sm text-muted-foreground">{t("project.cloneUrlHelp")}</p>
                 </div>
                 <div className="flex items-start gap-2 pt-1">
                   <span className="w-28 shrink-0 text-sm">{t("project.pushAuth")}</span>
                   <p className="text-meta-sm text-muted-foreground">{t("project.pushAuthValue")}</p>
-                </div>
-              </div>
-            </section>
-            <section className="py-4">
-              <h2 className="mb-3 text-sm font-medium">{t("project.github")}</h2>
-              <div className="space-y-3">
-                <div className="space-y-1">
-                  <Label htmlFor="github-repo">{t("project.githubRepo")}</Label>
-                  <Input
-                    id="github-repo"
-                    value={githubRepo}
-                    onChange={(e) => setGithubRepo(e.target.value)}
-                    placeholder={t("project.githubRepoPlaceholder")}
-                    autoComplete="off"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="github-token">{t("project.githubToken")}</Label>
-                  <Input
-                    id="github-token"
-                    type="password"
-                    value={githubToken}
-                    onChange={(e) => setGithubToken(e.target.value)}
-                    placeholder={
-                      project?.github_token_set
-                        ? t("project.githubTokenKeep")
-                        : t("project.githubTokenPlaceholder")
-                    }
-                    autoComplete="off"
-                  />
-                </div>
-                <p className="text-meta-sm text-muted-foreground">{t("project.githubHelp")}</p>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={githubSaving || !githubRepo.trim()}
-                    onClick={() => void saveGithub()}
-                  >
-                    {t("project.githubSave")}
-                  </Button>
-                  <Button
-                    type="button"
-                    disabled={githubPushing || !project?.github_token_set}
-                    onClick={() => void pushGithub()}
-                  >
-                    {t("project.githubPush")}
-                  </Button>
-                  {project?.github_repo ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      disabled={githubSaving}
-                      onClick={() => void unlinkGithub()}
-                    >
-                      {t("project.githubUnlink")}
-                    </Button>
-                  ) : null}
                 </div>
               </div>
             </section>

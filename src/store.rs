@@ -14,7 +14,12 @@ pub struct User {
     pub username: String,
     pub password_hash: Option<String>,
     pub email_verified_at: Option<String>,
+    pub github_id: Option<String>,
+    pub github_login: Option<String>,
 }
+
+const USER_COLS: &str = "id, email, COALESCE(username, lower(substr(email, 1, instr(email, '@') - 1))) AS username, password_hash, email_verified_at, github_id, github_login";
+const USER_COLS_U: &str = "u.id, u.email, COALESCE(u.username, lower(substr(u.email, 1, instr(u.email, '@') - 1))) AS username, u.password_hash, u.email_verified_at, u.github_id, u.github_login";
 
 #[derive(Debug, Clone)]
 pub struct Project {
@@ -70,32 +75,26 @@ pub fn now() -> String {
 }
 
 pub async fn find_user_by_email(pool: &SqlitePool, email: &str) -> Result<Option<User>> {
-    let row = sqlx::query(
-        "SELECT id, email, COALESCE(username, lower(substr(email, 1, instr(email, '@') - 1))) AS username, password_hash, email_verified_at FROM users WHERE email = ?",
-    )
-    .bind(email)
-    .fetch_optional(pool)
-    .await?;
+    let sql = format!("SELECT {USER_COLS} FROM users WHERE email = ?");
+    let row = sqlx::query(&sql).bind(email).fetch_optional(pool).await?;
     Ok(row.map(row_to_user))
 }
 
 pub async fn find_user_by_username(pool: &SqlitePool, username: &str) -> Result<Option<User>> {
-    let row = sqlx::query(
-        "SELECT id, email, COALESCE(username, lower(substr(email, 1, instr(email, '@') - 1))) AS username, password_hash, email_verified_at FROM users WHERE username = ? OR lower(substr(email, 1, instr(email, '@') - 1)) = ?",
-    )
-    .bind(username)
-    .bind(username)
-    .fetch_optional(pool)
-    .await?;
+    let sql = format!(
+        "SELECT {USER_COLS} FROM users WHERE username = ? OR lower(substr(email, 1, instr(email, '@') - 1)) = ?"
+    );
+    let row = sqlx::query(&sql)
+        .bind(username)
+        .bind(username)
+        .fetch_optional(pool)
+        .await?;
     Ok(row.map(row_to_user))
 }
 
 pub async fn find_user_by_id(pool: &SqlitePool, id: &str) -> Result<Option<User>> {
-    let row =
-        sqlx::query("SELECT id, email, COALESCE(username, lower(substr(email, 1, instr(email, '@') - 1))) AS username, password_hash, email_verified_at FROM users WHERE id = ?")
-            .bind(id)
-            .fetch_optional(pool)
-            .await?;
+    let sql = format!("SELECT {USER_COLS} FROM users WHERE id = ?");
+    let row = sqlx::query(&sql).bind(id).fetch_optional(pool).await?;
     Ok(row.map(row_to_user))
 }
 
@@ -124,6 +123,8 @@ pub async fn insert_user(pool: &SqlitePool, email: &str) -> Result<User> {
         username,
         password_hash: None,
         email_verified_at: None,
+        github_id: None,
+        github_login: None,
     })
 }
 
@@ -252,16 +253,17 @@ pub async fn find_valid_token(
 }
 
 pub async fn find_session_user(pool: &SqlitePool, token_hash: &str) -> Result<Option<User>> {
-    let row = sqlx::query(
-        "SELECT u.id, u.email, COALESCE(u.username, lower(substr(u.email, 1, instr(u.email, '@') - 1))) AS username, u.password_hash, u.email_verified_at, t.expires_at
+    let sql = format!(
+        "SELECT {USER_COLS_U}, t.expires_at
          FROM auth_tokens t
          JOIN users u ON u.id = t.user_id
-         WHERE t.purpose = ? AND t.token_hash = ?",
-    )
-    .bind("session")
-    .bind(token_hash)
-    .fetch_optional(pool)
-    .await?;
+         WHERE t.purpose = ? AND t.token_hash = ?"
+    );
+    let row = sqlx::query(&sql)
+        .bind("session")
+        .bind(token_hash)
+        .fetch_optional(pool)
+        .await?;
     if let Some(row) = row {
         let expires_at: String = row.get("expires_at");
         if expires_at >= now() {
@@ -270,15 +272,16 @@ pub async fn find_session_user(pool: &SqlitePool, token_hash: &str) -> Result<Op
     }
 
     // Check personal_access_tokens
-    let pat_row = sqlx::query(
-        "SELECT u.id, u.email, COALESCE(u.username, lower(substr(u.email, 1, instr(u.email, '@') - 1))) AS username, u.password_hash, u.email_verified_at, p.id AS pat_id, p.expires_at
+    let pat_sql = format!(
+        "SELECT {USER_COLS_U}, p.id AS pat_id, p.expires_at
          FROM personal_access_tokens p
          JOIN users u ON u.id = p.user_id
-         WHERE p.token_hash = ?",
-    )
-    .bind(token_hash)
-    .fetch_optional(pool)
-    .await?;
+         WHERE p.token_hash = ?"
+    );
+    let pat_row = sqlx::query(&pat_sql)
+        .bind(token_hash)
+        .fetch_optional(pool)
+        .await?;
 
     if let Some(row) = pat_row {
         let pat_id: String = row.get("pat_id");
@@ -615,6 +618,75 @@ fn row_to_user(row: sqlx::sqlite::SqliteRow) -> User {
         username,
         password_hash: row.get("password_hash"),
         email_verified_at: row.get("email_verified_at"),
+        github_id: row.try_get::<Option<String>, _>("github_id").ok().flatten(),
+        github_login: row
+            .try_get::<Option<String>, _>("github_login")
+            .ok()
+            .flatten(),
+    }
+}
+
+pub async fn set_username(pool: &SqlitePool, user_id: &str, username: &str) -> Result<()> {
+    let ts = now();
+    sqlx::query("UPDATE users SET username = ?, updated_at = ? WHERE id = ?")
+        .bind(username)
+        .bind(&ts)
+        .bind(user_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn set_user_github(
+    pool: &SqlitePool,
+    user_id: &str,
+    github_id: &str,
+    github_login: &str,
+    github_token: &str,
+) -> Result<()> {
+    let ts = now();
+    sqlx::query(
+        "UPDATE users SET github_id = ?, github_login = ?, github_token = ?, updated_at = ? WHERE id = ?",
+    )
+    .bind(github_id)
+    .bind(github_login)
+    .bind(github_token)
+    .bind(&ts)
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn clear_user_github(pool: &SqlitePool, user_id: &str) -> Result<()> {
+    let ts = now();
+    sqlx::query(
+        "UPDATE users SET github_id = NULL, github_login = NULL, github_token = NULL, updated_at = ? WHERE id = ?",
+    )
+    .bind(&ts)
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Returns (github_login, token). Token is never put on User / GET JSON.
+pub async fn get_user_github_secret(
+    pool: &SqlitePool,
+    user_id: &str,
+) -> Result<Option<(String, String)>> {
+    let row = sqlx::query("SELECT github_login, github_token FROM users WHERE id = ?")
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    let login: Option<String> = row.get("github_login");
+    let token: Option<String> = row.get("github_token");
+    match (login, token) {
+        (Some(l), Some(t)) if !l.is_empty() && !t.is_empty() => Ok(Some((l, t))),
+        _ => Ok(None),
     }
 }
 

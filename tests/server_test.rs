@@ -28,6 +28,8 @@ async fn test_hub() -> (HubState, tempfile::TempDir) {
         public_origin: "http://127.0.0.1:8080".into(),
         cells_dir: tmp.path().join("cells"),
         cells_storage_dir: tmp.path().join("cells-storage"),
+        github_client_id: String::new(),
+        github_client_secret: String::new(),
     };
     (hub, tmp)
 }
@@ -547,7 +549,55 @@ async fn cli_browser_login_issues_session() {
 }
 
 #[tokio::test]
-async fn github_link_is_write_only_and_required_for_push() {
+async fn project_commits_include_time_to_minute() {
+    let (hub, _tmp) = test_hub().await;
+    let app = create_router(hub);
+
+    let (status, body) = json_request(
+        app.clone(),
+        "POST",
+        "/api/v1/auth/register",
+        None,
+        Some(serde_json::json!({
+            "email": "commits@example.com",
+            "password": "password1"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let token = body["token"].as_str().unwrap();
+
+    let (status, project) = json_request(
+        app.clone(),
+        "POST",
+        "/api/v1/projects",
+        Some(token),
+        Some(serde_json::json!({ "name": "Timed Commits" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{project}");
+    let id = project["id"].as_str().unwrap();
+
+    let (status, body) = json_request(
+        app,
+        "GET",
+        &format!("/api/v1/projects/{id}/commits?limit=50"),
+        Some(token),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let commits = body["commits"].as_array().expect("commits array");
+    assert!(!commits.is_empty(), "{body}");
+    let date = commits[0]["date"].as_str().unwrap_or("");
+    assert!(
+        date.contains('T') && date.len() >= 16,
+        "expected ISO datetime to the minute, got {date}"
+    );
+}
+
+#[tokio::test]
+async fn github_oauth_is_account_level_and_required_for_push() {
     let (hub, _tmp) = test_hub().await;
     let app = create_router(hub);
 
@@ -565,6 +615,22 @@ async fn github_link_is_write_only_and_required_for_push() {
     assert_eq!(status, StatusCode::OK, "{body}");
     let token = body["token"].as_str().unwrap();
 
+    let (status, me) = json_request(app.clone(), "GET", "/api/v1/me", Some(token), None).await;
+    assert_eq!(status, StatusCode::OK, "{me}");
+    assert_eq!(me["github_connected"], false);
+    assert_eq!(me["github_oauth_configured"], false);
+    assert!(me.get("github_token").is_none());
+
+    let (status, start) = json_request(
+        app.clone(),
+        "GET",
+        "/api/v1/auth/github/start",
+        Some(token),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{start}");
+
     let (status, project) = json_request(
         app.clone(),
         "POST",
@@ -576,58 +642,8 @@ async fn github_link_is_write_only_and_required_for_push() {
     assert_eq!(status, StatusCode::OK, "{project}");
     let id = project["id"].as_str().unwrap();
 
-    let (status, missing) = json_request(
-        app.clone(),
-        "PUT",
-        &format!("/api/v1/projects/{id}/github"),
-        Some(token),
-        Some(serde_json::json!({ "github_repo": "acme/mirror" })),
-    )
-    .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST, "{missing}");
-
-    let (status, linked) = json_request(
-        app.clone(),
-        "PUT",
-        &format!("/api/v1/projects/{id}/github"),
-        Some(token),
-        Some(serde_json::json!({
-            "github_repo": "https://github.com/acme/mirror.git",
-            "github_token": "ghp_testtoken"
-        })),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{linked}");
-    assert_eq!(linked["github_repo"], "acme/mirror");
-    assert_eq!(linked["github_token_set"], true);
-    assert!(linked.get("github_token").is_none());
-
-    let (status, got) = json_request(
-        app.clone(),
-        "GET",
-        &format!("/api/v1/projects/{id}"),
-        Some(token),
-        None,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{got}");
-    assert_eq!(got["github_repo"], "acme/mirror");
-    assert_eq!(got["github_token_set"], true);
-    assert!(got.get("github_token").is_none());
-
-    let (status, unlinked) = json_request(
-        app.clone(),
-        "DELETE",
-        &format!("/api/v1/projects/{id}/github"),
-        Some(token),
-        None,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{unlinked}");
-    assert_eq!(unlinked["github_token_set"], false);
-
     let (status, push) = json_request(
-        app,
+        app.clone(),
         "POST",
         &format!("/api/v1/projects/{id}/github/push"),
         Some(token),
@@ -635,6 +651,17 @@ async fn github_link_is_write_only_and_required_for_push() {
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{push}");
+
+    let (status, patched) = json_request(
+        app,
+        "PATCH",
+        "/api/v1/me",
+        Some(token),
+        Some(serde_json::json!({ "username": "gh-user" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{patched}");
+    assert_eq!(patched["username"], "gh-user");
 }
 
 #[tokio::test]

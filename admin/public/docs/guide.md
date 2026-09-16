@@ -62,13 +62,14 @@ Credentials are stored in `~/.openhub/credentials` (mode 0600).
 
 CLI: `oh project create <name>`. Run it inside an existing git repo and it writes `.openhub/config.json` in cwd. To attach cwd to a project that already exists: `oh init <project-id|slug>`, then `oh sync`. `oh clone` is only for an empty directory.
 
-GitHub mirror (project Settings on the site, owner-only, manual push):
+GitHub (account Settings, github.com OAuth — not a PAT pasted on a project):
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| PUT | `/api/v1/projects/{id}/github` | `{ "github_repo", "github_token?" }` token write-only |
-| DELETE | `/api/v1/projects/{id}/github` | unlink |
-| POST | `/api/v1/projects/{id}/github/push` | `git push` this project's tree to GitHub |
+| GET | `/api/v1/auth/github/start` | `{ url }` → github.com authorize |
+| GET | `/api/v1/auth/github/callback` | OAuth redirect; then `/settings?section=github` |
+| DELETE | `/api/v1/me/github` | disconnect |
+| POST | `/api/v1/projects/{id}/github/push` | `git push` using the account token to `{github_login}/{slug}` |
 
 ## Git
 

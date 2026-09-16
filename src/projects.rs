@@ -1,3 +1,5 @@
+use std::process::Command;
+
 use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::HeaderMap;
@@ -186,9 +188,64 @@ pub async fn delete(
 }
 
 #[derive(Debug, Deserialize)]
+pub struct CommitsQuery {
+    pub limit: Option<u32>,
+}
+
+pub async fn list_commits(
+    State(hub): State<HubState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    headers: HeaderMap,
+    Query(query): Query<CommitsQuery>,
+) -> Result<Json<Value>> {
+    let user = auth::user_from_headers(&hub, &headers).await?;
+    let project = store::find_project_by_id_or_slug(&hub.db, &user.id, &id)
+        .await?
+        .ok_or_else(|| Error::NotFound("project not found".into()))?;
+    let git_dir = hub.gitcell.data_dir.join(&project.id);
+    if !git_dir.join(".git").exists() && !git_dir.join("HEAD").exists() {
+        return Ok(Json(json!({ "commits": [] })));
+    }
+    let limit = query.limit.unwrap_or(50).clamp(1, 200);
+    let limit_arg = format!("-{limit}");
+    let output = tokio::task::spawn_blocking(move || {
+        let mut cmd = Command::new("git");
+        cmd.current_dir(&git_dir)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_COMMON_DIR")
+            .env_remove("GIT_OBJECT_DIRECTORY")
+            .env_remove("GIT_INDEX_FILE")
+            .args(["log", &limit_arg, "--pretty=format:%h%x09%aI%x09%s"]);
+        cmd.output()
+    })
+    .await
+    .map_err(|e| Error::Internal(anyhow!(e.to_string())))?
+    .map_err(|e| Error::Internal(anyhow!("git log: {e}")))?;
+    if !output.status.success() {
+        return Ok(Json(json!({ "commits": [] })));
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let commits: Vec<Value> = stdout
+        .lines()
+        .filter(|l| !l.is_empty())
+        .filter_map(|line| {
+            let mut parts = line.splitn(3, '\t');
+            let sha = parts.next()?.to_string();
+            let date = parts.next()?.to_string();
+            let message = parts.next().unwrap_or("").to_string();
+            if sha.is_empty() {
+                return None;
+            }
+            Some(json!({ "sha": sha, "date": date, "message": message }))
+        })
+        .collect();
+    Ok(Json(json!({ "commits": commits })))
+}
+
+#[derive(Debug, Deserialize)]
 pub struct GithubLinkRequest {
     pub github_repo: String,
-    pub github_token: Option<String>,
 }
 
 pub async fn put_github(
@@ -199,20 +256,10 @@ pub async fn put_github(
 ) -> Result<Json<Value>> {
     let user = auth::user_from_headers(&hub, &headers).await?;
     let repo = parse_github_repo(&body.github_repo)?;
-    let token = body
-        .github_token
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty());
-    let project = store::find_project_by_id_or_slug(&hub.db, &user.id, &id)
+    store::find_project_by_id_or_slug(&hub.db, &user.id, &id)
         .await?
         .ok_or_else(|| Error::NotFound("project not found".into()))?;
-    if token.is_none() && !project.github_token_set {
-        return Err(Error::InvalidRequest(
-            "github_token is required the first time you link GitHub".into(),
-        ));
-    }
-    let updated = store::set_project_github(&hub.db, &user.id, &id, Some(&repo), token)
+    let updated = store::set_project_github(&hub.db, &user.id, &id, Some(&repo), None)
         .await?
         .ok_or_else(|| Error::NotFound("project not found".into()))?;
     Ok(Json(project_json(&updated, &user.username)))
@@ -239,13 +286,18 @@ pub async fn push_github(
     let project = store::find_project_by_id_or_slug(&hub.db, &user.id, &id)
         .await?
         .ok_or_else(|| Error::NotFound("project not found".into()))?;
-    let Some((repo, token)) =
-        store::get_project_github_secret(&hub.db, &user.id, &project.id).await?
-    else {
+    let Some((gh_login, token)) = store::get_user_github_secret(&hub.db, &user.id).await? else {
         return Err(Error::InvalidRequest(
-            "link a GitHub repo and token first".into(),
+            "connect GitHub in Settings first".into(),
         ));
     };
+    let repo = project
+        .github_repo
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("{gh_login}/{}", project.slug));
     let git_dir = hub.gitcell.data_dir.join(&project.id);
     if !git_dir.join(".git").exists() && !git_dir.join("HEAD").exists() {
         return Err(Error::InvalidRequest(

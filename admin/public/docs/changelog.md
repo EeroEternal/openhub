@@ -18,6 +18,6 @@ Product log for agents. Not git history.
 - CLI `oh`: `login`, `project create`, `init`, `clone`, `sync`, `merge`.
 - `oh project create` inside a git repo writes `.openhub/config.json` (no hand-edited config). `oh init <id>` links cwd to an existing project.
 - `oh sync` no longer ignores a rejected git push. If the remote is only the OpenHub placeholder README commit, it replaces that with local history. `oh project create` in a git repo sends `init_readme: false` so the first push is a fast-forward.
-- `oh github set [owner/repo]` stores a GitHub URL in `.openhub/config.json`. `oh sync` then pushes OpenHub, then GitHub (local git auth). Not a GitHub App; OpenHub does not store GitHub tokens.
-- Project Settings: link `owner/repo` + GitHub PAT (never returned on GET) and **Push to GitHub** (`POST /api/v1/projects/{id}/github/push`).
+- `oh github set [owner/repo]` stores a GitHub URL in `.openhub/config.json`. `oh sync` then pushes OpenHub, then GitHub (local git auth).
+- Settings → GitHub: connect with github.com OAuth (account-level). Server-side push uses that token; default repo is `{github_login}/{project_slug}`.
 - `oh sync` reads root `.openhubignore` (gitignore syntax) when staging a snapshot. `.openhub/` is always excluded.
