@@ -603,8 +603,9 @@ async fn sync() -> Result<()> {
             }
         }
     }
-    push_local_events(&client, &creds, &meta.project_id, &dir).await?;
+    let pushed = push_local_events(&client, &creds, &meta.project_id, &dir).await?;
     pull_events(&client, &creds, &meta.project_id, &dir).await?;
+    merge_local_events(&dir, &pushed)?;
     println!("synced {}", meta.project_id);
     Ok(())
 }
@@ -753,8 +754,9 @@ async fn merge(args: Vec<String>) -> Result<()> {
     }
 
     // 6. Push local agent sessions and pull events
-    push_local_events(&client, &creds, &meta.project_id, &dir).await?;
+    let pushed = push_local_events(&client, &creds, &meta.project_id, &dir).await?;
     pull_events(&client, &creds, &meta.project_id, &dir).await?;
+    merge_local_events(&dir, &pushed)?;
 
     println!(
         "merged and synced {} ({} -> {})",
@@ -789,7 +791,7 @@ async fn push_local_events(
     creds: &Creds,
     project_id: &str,
     dir: &Path,
-) -> Result<()> {
+) -> Result<Vec<Value>> {
     let mut all_events = Vec::new();
 
     // 1. Read existing OpenHub local events from .openhub/events.json
@@ -814,7 +816,7 @@ async fn push_local_events(
         })
         .collect();
     if pi_events.is_empty() {
-        return Ok(());
+        return Ok(Vec::new());
     }
     println!("found {} new .pi session event(s) to sync", pi_events.len());
 
@@ -900,7 +902,31 @@ async fn push_local_events(
     }
 
     println!("synced events: {total_accepted} new, {total_skipped} existing");
-    Ok(())
+    Ok(pi_events)
+}
+
+/// Appends events missing from the local cache. pull_events overwrites the
+/// cache with the server's first page, so pushed events beyond that page
+/// must be merged back or every sync would rediscover them as new.
+fn merge_local_events(dir: &Path, pushed: &[Value]) -> Result<()> {
+    if pushed.is_empty() {
+        return Ok(());
+    }
+    let mut cache = read_local_events(dir)?;
+    let arr = cache
+        .as_array_mut()
+        .ok_or_else(|| anyhow::anyhow!(".openhub/events.json is not an array"))?;
+    let known: HashSet<String> = arr
+        .iter()
+        .filter_map(|e| e["id"].as_str().map(str::to_string))
+        .collect();
+    for event in pushed {
+        match event["id"].as_str() {
+            Some(id) if !known.contains(id) => arr.push(event.clone()),
+            _ => {}
+        }
+    }
+    write_local_events(dir, &cache)
 }
 
 /// Collects .pi coding agent session events from ~/.pi/agent/sessions/--<path>--/*.jsonl
