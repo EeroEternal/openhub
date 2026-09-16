@@ -811,8 +811,32 @@ async fn push_local_events(
     let mut total_accepted = 0;
     let mut total_skipped = 0;
 
-    // Send in chunks of 50-100 events to avoid HTTP 413 Payload Too Large
-    for chunk in pi_events.chunks(100) {
+    // Bound each request to avoid HTTP 413 from reverse proxies (nginx
+    // client_max_body_size defaults to 1 MB): max 100 events AND max 512 KB
+    // of serialized payload. An event larger than the cap still ships alone.
+    const CHUNK_MAX_EVENTS: usize = 100;
+    const CHUNK_MAX_BYTES: usize = 512 * 1024;
+    let mut chunk: Vec<&Value> = Vec::with_capacity(CHUNK_MAX_EVENTS);
+    let mut chunk_bytes = 0usize;
+    let mut chunks: Vec<Vec<&Value>> = Vec::new();
+    for event in &pi_events {
+        let event_bytes = serde_json::to_vec(event)
+            .map(|v| v.len())
+            .unwrap_or(CHUNK_MAX_BYTES);
+        if !chunk.is_empty()
+            && (chunk.len() >= CHUNK_MAX_EVENTS || chunk_bytes + event_bytes > CHUNK_MAX_BYTES)
+        {
+            chunks.push(std::mem::take(&mut chunk));
+            chunk_bytes = 0;
+        }
+        chunk_bytes += event_bytes;
+        chunk.push(event);
+    }
+    if !chunk.is_empty() {
+        chunks.push(chunk);
+    }
+
+    for chunk in chunks {
         let res = client
             .post(format!(
                 "{}/api/v1/projects/{project_id}/events",
