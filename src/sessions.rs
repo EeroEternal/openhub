@@ -11,6 +11,11 @@ use crate::error::{Error, Result};
 use crate::server::HubState;
 use crate::store;
 
+/// Max request body for the events routes, measured AFTER request
+/// decompression. The CLI gzips large pushes, so this must cover the
+/// decompressed size of a full session batch.
+pub const MAX_EVENTS_BODY: usize = 32 * 1024 * 1024;
+
 #[derive(Debug, Deserialize)]
 pub struct EventsQuery {
     pub since: Option<i64>,

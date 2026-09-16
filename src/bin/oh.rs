@@ -3,12 +3,22 @@
 
 use std::collections::HashSet;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result, bail};
+use flate2::Compression as GzipCompression;
+use flate2::write::GzEncoder;
+use reqwest::header::{CONTENT_ENCODING, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+
+/// Bodies above this size are gzipped before upload.
+const GZIP_MIN_BODY: usize = 64 * 1024;
+/// Never upload a request body at or above this size: nginx's default
+/// client_max_body_size is 1 MB, so leave headroom for headers/rounding.
+const MAX_RAW_BODY: usize = 950 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Creds {
@@ -813,7 +823,8 @@ async fn push_local_events(
 
     // Bound each request to avoid HTTP 413 from reverse proxies (nginx
     // client_max_body_size defaults to 1 MB): max 100 events AND max 512 KB
-    // of serialized payload. An event larger than the cap still ships alone.
+    // of serialized payload. An event larger than the cap still ships alone
+    // (gzipped; see the body guards below).
     const CHUNK_MAX_EVENTS: usize = 100;
     const CHUNK_MAX_BYTES: usize = 512 * 1024;
     let mut chunk: Vec<&Value> = Vec::with_capacity(CHUNK_MAX_EVENTS);
@@ -837,15 +848,45 @@ async fn push_local_events(
     }
 
     for chunk in chunks {
-        let res = client
+        let payload = serde_json::to_vec(&json!({ "events": chunk }))?;
+        // Gzip large payloads: the origin proxy (nginx) caps RAW request
+        // bodies, so compressed JSON passes where plain JSON gets a 413.
+        let (body, encoding) = if payload.len() > GZIP_MIN_BODY {
+            let mut enc = GzEncoder::new(
+                Vec::with_capacity(payload.len()),
+                GzipCompression::default(),
+            );
+            enc.write_all(&payload)?;
+            let gz = enc.finish()?;
+            if gz.len() >= payload.len() {
+                (payload, None)
+            } else {
+                (gz, Some("gzip"))
+            }
+        } else {
+            (payload, None)
+        };
+        if body.len() >= MAX_RAW_BODY {
+            let ids: Vec<&str> = chunk.iter().filter_map(|e| e["id"].as_str()).collect();
+            eprintln!(
+                "session push: skipping chunk of {} event(s) {:.1} KB (still over the proxy body limit after gzip): {}",
+                chunk.len(),
+                body.len() as f64 / 1024.0,
+                ids.join(", ")
+            );
+            continue;
+        }
+        let mut req = client
             .post(format!(
                 "{}/api/v1/projects/{project_id}/events",
                 creds.origin
             ))
-            .json(&json!({ "events": chunk }))
-            .send()
-            .await
-            .context("push events")?;
+            .header(CONTENT_TYPE, "application/json")
+            .body(body);
+        if encoding.is_some() {
+            req = req.header(CONTENT_ENCODING, "gzip");
+        }
+        let res = req.send().await.context("push events")?;
 
         if !res.status().is_success() {
             let status = res.status();

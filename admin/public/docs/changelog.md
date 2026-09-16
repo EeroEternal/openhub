@@ -21,4 +21,4 @@ Product log for agents. Not git history.
 - `oh github set [owner/repo]` stores a GitHub URL in `.openhub/config.json`. `oh sync` then pushes OpenHub, then GitHub (local git auth).
 - Settings → GitHub: connect with github.com OAuth (account-level). Server-side push uses that token; default repo is `{github_login}/{project_slug}`.
 - `oh sync` reads root `.openhubignore` (gitignore syntax) when staging a snapshot. `.openhub/` is always excluded.
-- `oh sync` bounds each session-events POST to 100 events / 512 KB, so large session logs no longer fail with HTTP 413 from the origin proxy.
+- `oh sync` bounds each session-events POST to 100 events / 512 KB and gzips large pushes. Single events bigger than the proxy body limit are skipped with a warning instead of failing the whole sync with HTTP 413.

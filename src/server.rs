@@ -16,6 +16,7 @@ use serde_json::{Value, json};
 use sqlx::SqlitePool;
 use tower::{Layer, Service};
 use tower_http::cors::CorsLayer;
+use tower_http::decompression::RequestDecompressionLayer;
 use tower_http::trace::TraceLayer;
 
 use crate::auth;
@@ -101,11 +102,15 @@ pub fn create_router_with_static(hub: HubState, static_dir: Option<PathBuf>) -> 
         )
         .route(
             "/api/v1/projects/{id}/events",
-            get(sessions::pull).post(sessions::push),
+            get(sessions::pull)
+                .post(sessions::push)
+                .layer(DefaultBodyLimit::max(sessions::MAX_EVENTS_BODY)),
         )
         .route(
             "/api/v1/projects/{username}/{slug}/events",
-            get(sessions::pull_user_repo).post(sessions::push_user_repo),
+            get(sessions::pull_user_repo)
+                .post(sessions::push_user_repo)
+                .layer(DefaultBodyLimit::max(sessions::MAX_EVENTS_BODY)),
         )
         .route(
             "/api/v1/projects/{id}/git/bundle",
@@ -146,6 +151,11 @@ pub fn create_router_with_static(hub: HubState, static_dir: Option<PathBuf>) -> 
     }
     app.layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
+        // Decompress gzipped request bodies (oh sync gzips large event
+        // pushes to fit the origin proxy's raw body limit). Applied
+        // outermost so route-level DefaultBodyLimit measures the
+        // decompressed size.
+        .layer(RequestDecompressionLayer::new())
 }
 
 async fn serve_spa(State(dir): State<PathBuf>, uri: Uri) -> Response {
