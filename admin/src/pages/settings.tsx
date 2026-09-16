@@ -81,6 +81,7 @@ export default function SettingsPage() {
   const [githubConnected, setGithubConnected] = useState(false)
   const [githubConfigured, setGithubConfigured] = useState(false)
   const [githubPending, setGithubPending] = useState(false)
+  const [projectSlugs, setProjectSlugs] = useState<string[]>([])
   const [disconnectOpen, setDisconnectOpen] = useState(false)
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false)
 
@@ -154,7 +155,25 @@ export default function SettingsPage() {
     if (activeSection === "tokens") {
       fetchTokens()
     }
+    if (activeSection === "github") {
+      void api<{ projects: { slug: string }[] }>("/api/v1/projects")
+        .then((res) => setProjectSlugs((res.projects ?? []).map((p) => p.slug).filter(Boolean)))
+        .catch(() => setProjectSlugs([]))
+    }
   }, [activeSection])
+
+  useEffect(() => {
+    function onMsg(event: MessageEvent) {
+      const data = event.data as { source?: string; ok?: boolean } | null
+      if (data?.source !== "openhub-github") return
+      void api<Me>("/api/v1/me").then(applyMe).catch(() => undefined)
+      setGithubPending(false)
+      if (data.ok) toast.success(t("settings.githubConnected"))
+      else toast.error(t("settings.githubError"))
+    }
+    window.addEventListener("message", onMsg)
+    return () => window.removeEventListener("message", onMsg)
+  }, [])
 
   function handleStartEditAppearance() {
     setDraftLang(language)
@@ -227,7 +246,21 @@ export default function SettingsPage() {
     setGithubPending(true)
     try {
       const res = await api<{ url: string }>("/api/v1/auth/github/start")
-      window.location.assign(res.url)
+      const popup = window.open(
+        res.url,
+        "openhub-github-oauth",
+        "popup=yes,width=600,height=720",
+      )
+      if (!popup) {
+        window.location.assign(res.url)
+        return
+      }
+      const timer = window.setInterval(() => {
+        if (!popup.closed) return
+        window.clearInterval(timer)
+        setGithubPending(false)
+        void api<Me>("/api/v1/me").then(applyMe).catch(() => undefined)
+      }, 400)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("common.error"))
       setGithubPending(false)
@@ -509,17 +542,7 @@ export default function SettingsPage() {
                 title={t("settings.github")}
                 description={t("settings.githubDesc")}
                 headerExtra={
-                  githubConnected ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setDisconnectOpen(true)}
-                      disabled={githubPending}
-                      className="h-8 gap-1.5 text-xs font-medium"
-                    >
-                      {t("settings.githubDisconnect")}
-                    </Button>
-                  ) : (
+                  <div className="flex items-center gap-2">
                     <Button
                       size="sm"
                       onClick={() => void handleGithubConnect()}
@@ -527,9 +550,20 @@ export default function SettingsPage() {
                       className="h-8 gap-1.5 text-xs font-medium"
                     >
                       <Github className="h-3.5 w-3.5" />
-                      {t("settings.githubConnect")}
+                      {githubConnected ? t("settings.githubReconnect") : t("settings.githubConnect")}
                     </Button>
-                  )
+                    {githubConnected ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setDisconnectOpen(true)}
+                        disabled={githubPending}
+                        className="h-8 gap-1.5 text-xs font-medium"
+                      >
+                        {t("settings.githubDisconnect")}
+                      </Button>
+                    ) : null}
+                  </div>
                 }
               >
                 {!githubConfigured ? (
@@ -550,8 +584,16 @@ export default function SettingsPage() {
                         <span className="font-medium">{t("settings.githubMirror")}</span>
                         <Github className="h-3.5 w-3.5 text-muted-foreground" />
                       </div>
-                      <div className="mt-2 text-sm font-semibold text-foreground truncate">
-                        {`github.com/${githubLogin}/{slug}`}
+                      <div className="mt-2 space-y-1 text-sm font-semibold text-foreground">
+                        {projectSlugs.length === 0 ? (
+                          <div className="truncate">{`github.com/${githubLogin}/<slug>`}</div>
+                        ) : (
+                          projectSlugs.map((slug) => (
+                            <div key={slug} className="truncate">
+                              {`github.com/${githubLogin}/${slug}`}
+                            </div>
+                          ))
+                        )}
                       </div>
                     </div>
                   </div>

@@ -3,7 +3,7 @@
 use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::HeaderMap;
-use axum::response::Redirect;
+use axum::response::{Html, IntoResponse, Response};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -45,32 +45,55 @@ pub async fn start(State(hub): State<HubState>, headers: HeaderMap) -> Result<Js
         .append_pair("client_id", &hub.github_client_id)
         .append_pair("redirect_uri", &redirect)
         .append_pair("scope", "repo")
-        .append_pair("state", &state);
+        .append_pair("state", &state)
+        .append_pair("allow_signup", "true");
     Ok(Json(json!({ "url": url.to_string() })))
 }
 
 pub async fn callback(
     State(hub): State<HubState>,
     Query(query): Query<GithubCallbackQuery>,
-) -> Redirect {
-    let settings = format!(
-        "{}/settings?section=github",
-        hub.public_origin.trim_end_matches('/')
-    );
-    let fail = format!("{settings}&github=error");
+) -> Response {
+    let origin = hub.public_origin.trim_end_matches('/').to_string();
     if query.error.is_some() {
-        return Redirect::to(&fail);
+        return oauth_done_page(&origin, false).into_response();
     }
     let (Some(code), Some(state)) = (query.code, query.state) else {
-        return Redirect::to(&fail);
+        return oauth_done_page(&origin, false).into_response();
     };
     match finish_oauth(&hub, &code, &state).await {
-        Ok(()) => Redirect::to(&format!("{settings}&github=connected")),
+        Ok(()) => oauth_done_page(&origin, true).into_response(),
         Err(err) => {
             tracing::warn!(%err, "github oauth callback failed");
-            Redirect::to(&fail)
+            oauth_done_page(&origin, false).into_response()
         }
     }
+}
+
+fn oauth_done_page(origin: &str, ok: bool) -> Html<String> {
+    let ok_js = if ok { "true" } else { "false" };
+    let origin_js = serde_json::to_string(origin).unwrap_or_else(|_| "\"\"".to_string());
+    let status = if ok { "complete" } else { "failed" };
+    Html(format!(
+        r#"<!DOCTYPE html><html><head><meta charset="utf-8"><title>GitHub</title></head><body>
+<script>
+(function () {{
+  var ok = {ok_js};
+  var origin = {origin_js};
+  var flag = ok ? "connected" : "error";
+  try {{
+    if (window.opener && !window.opener.closed) {{
+      window.opener.postMessage({{ source: "openhub-github", ok: ok }}, origin);
+      window.close();
+      return;
+    }}
+  }} catch (e) {{}}
+  location.replace(origin + "/settings?section=github&github=" + flag);
+}})();
+</script>
+<p>GitHub authorization {status}. You can close this window.</p>
+</body></html>"#
+    ))
 }
 
 pub async fn disconnect(State(hub): State<HubState>, headers: HeaderMap) -> Result<Json<Value>> {
